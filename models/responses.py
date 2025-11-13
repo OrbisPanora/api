@@ -53,3 +53,76 @@ class WorldInfoResponse(BaseModel):
                 }
             }
         }
+
+
+class ChunkDataResponse(BaseModel):
+    """Chunk data response in various formats."""
+    
+    chunk_x: int = Field(..., description="Chunk X coordinate")
+    chunk_z: int = Field(..., description="Chunk Z coordinate")
+    heightmap: Optional[List[List[int]]] = Field(None, description="16x16 heightmap array")
+    surface_blocks: Optional[List[dict]] = Field(None, description="Surface blocks with biomes (surface mode)")
+    sections: Optional[List[dict]] = Field(None, description="Chunk sections (simplified/full mode)")
+    palette: Optional[List[str]] = Field(None, description="Block palette (simplified/full mode)")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "chunk_x": 0,
+                "chunk_z": 0,
+                "heightmap": [[64, 65, 64], [65, 66, 65]],
+                "surface_blocks": [
+                    {"x": 0, "y": 64, "z": 0, "block": "minecraft:grass_block", "biome": "plains"}
+                ]
+            }
+        }
+
+
+class AreaHeightmapResponse(BaseModel):
+    """Area heightmap response for large regions."""
+    
+    x1: int = Field(..., description="Minimum X coordinate")
+    z1: int = Field(..., description="Minimum Z coordinate")
+    x2: int = Field(..., description="Maximum X coordinate")
+    z2: int = Field(..., description="Maximum Z coordinate")
+    width: int = Field(..., description="Width in blocks")
+    height: int = Field(..., description="Height in blocks")
+    heightmap: List[List[int]] = Field(..., description="2D heightmap array")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "x1": 0,
+                "z1": 0,
+                "x2": 64,
+                "z2": 64,
+                "width": 65,
+                "height": 65,
+                "heightmap": [[64, 65], [65, 66]]
+            }
+        }
+
+
+class TileDataResponse(BaseModel):
+    """Tile data response for progressive loading."""
+    
+    tile_x: int = Field(..., description="Tile X coordinate")
+    tile_z: int = Field(..., description="Tile Z coordinate")
+    tile_size: int = Field(..., description="Tile size in chunks")
+    start_chunk_x: int = Field(..., description="Starting chunk X coordinate")
+    start_chunk_z: int = Field(..., description="Starting chunk Z coordinate")
+    chunks: List[dict] = Field(..., description="List of chunk data in the tile")
+    chunk_count: int = Field(..., description="Number of chunks in the tile")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "tile_x": 0,
+                "tile_z": 0,
+                "tile_size": 16,
+                "start_chunk_x": 0,
+                "start_chunk_z": 0,
+                "chunks": [],
+                "chunk_count": 256
+            }
+        }
