@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from config import settings, validate_settings
-from routers import world_router
+from routers import world_router, chunk_router
 from services import get_world_service
 
 
@@ -67,6 +67,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(world_router)
+app.include_router(chunk_router)
 
 
 # Root endpoint
@@ -83,6 +84,11 @@ async def root():
             "worlds": {
                 "current": "/api/worlds/current",
                 "health": "/api/worlds/health"
+            },
+            "chunks": {
+                "get_chunk": "/api/chunks/{chunk_x}/{chunk_z}?mode=heightmap",
+                "area_heightmap": "/api/chunks/area/heightmap?x1=0&z1=0&x2=100&z2=100",
+                "tile": "/api/chunks/tile/{tile_x}/{tile_z}?size=16"
             }
         }
     }
