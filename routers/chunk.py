@@ -26,7 +26,7 @@ router = APIRouter(
 
 @router.get(
     "/{chunk_x}/{chunk_z}",
-    response_model=APIResponse,
+    response_model=APIResponse[ChunkDataResponse],
     summary="Get chunk data",
     description="Returns chunk data in various formats: heightmap (lightest), surface (for rendering), simplified, or full.",
     status_code=200
@@ -39,7 +39,7 @@ async def get_chunk(
         description="Data format: heightmap (~1KB), surface (~10-50KB), simplified (~5KB), or full (~500KB-2MB)"
     ),
     world_service: WorldService = Depends(get_world_service)
-) -> APIResponse:
+) -> APIResponse[ChunkDataResponse]:
     """
     Get chunk data in the specified format.
     
@@ -94,7 +94,7 @@ async def get_chunk(
 
 @router.get(
     "/area/heightmap",
-    response_model=APIResponse,
+    response_model=APIResponse[AreaHeightmapResponse],
     summary="Get area heightmap",
     description="Returns heightmap for a large area (multiple chunks). Perfect for rendering large portions of the world.",
     status_code=200
@@ -105,7 +105,7 @@ async def get_area_heightmap(
     x2: int = Query(..., description="Maximum X coordinate (block)"),
     z2: int = Query(..., description="Maximum Z coordinate (block)"),
     world_service: WorldService = Depends(get_world_service)
-) -> APIResponse:
+) -> APIResponse[AreaHeightmapResponse]:
     """
     Get heightmap for an entire area spanning multiple chunks.
     
@@ -163,7 +163,7 @@ async def get_area_heightmap(
 
 @router.get(
     "/tile/{tile_x}/{tile_z}",
-    response_model=APIResponse,
+    response_model=APIResponse[TileDataResponse],
     summary="Get tile data",
     description="Returns data for a tile (square area of chunks). Optimized for progressive loading in the viewer.",
     status_code=200
@@ -178,7 +178,7 @@ async def get_tile(
         description="Tile size in chunks (default: 16, max: 32)"
     ),
     world_service: WorldService = Depends(get_world_service)
-) -> APIResponse:
+) -> APIResponse[TileDataResponse]:
     """
     Get data for a tile-based rendering system.
     

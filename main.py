@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from config import settings, validate_settings
-from routers import world_router, chunk_router, block_router
+from routers import world_router, chunk_router, block_router, biome_router
 from services import get_world_service
 
 
@@ -69,6 +69,7 @@ app.add_middleware(
 app.include_router(world_router)
 app.include_router(chunk_router)
 app.include_router(block_router)
+app.include_router(biome_router)
 
 
 # Root endpoint
@@ -93,6 +94,9 @@ async def root():
             },
             "blocks": {
                 "get_block": "/api/blocks/{block_x}/{block_y}/{block_z}"
+            },
+            "biomes": {
+                "get_biome": "/api/biomes/{biome_x}/{biome_y}/{biome_z}"
             }
         }
     }

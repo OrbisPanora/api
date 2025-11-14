@@ -23,14 +23,14 @@ router = APIRouter(
 
 @router.get(
     "/current",
-    response_model=APIResponse,
+    response_model=APIResponse[WorldInfoResponse],
     summary="Get current world information",
     description="Returns metadata about the currently loaded Minecraft world including dimension, bounds, and loaded regions.",
     status_code=200
 )
 async def get_current_world(
     world_service: WorldService = Depends(get_world_service)
-) -> APIResponse:
+) -> APIResponse[WorldInfoResponse]:
     """
     Get comprehensive world information.
     

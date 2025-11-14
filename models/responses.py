@@ -4,27 +4,19 @@ Standardized response format for all endpoints.
 """
 
 from pydantic import BaseModel, Field
-from typing import Any, Optional, List
+from typing import Any, Optional, List, TypeVar, Generic
 from datetime import datetime
 
+TResponse = TypeVar("TResponseData")
 
-class APIResponse(BaseModel):
+class APIResponse(BaseModel, Generic[TResponse]):
     """Standardized API response wrapper."""
 
     status: str = Field(..., description="Response status: 'success' or 'error'")
-    data: Optional[Any] = Field(None, description="Response data")
+    data: Optional[TResponse] = Field(None, description="Response data")
     error: Optional[str] = Field(None, description="Error message if status is 'error'")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "success",
-                "data": {"key": "value"},
-                "error": None,
-                "timestamp": "2024-01-01T00:00:00"
-            }
-        }
 
 
 class WorldInfoResponse(BaseModel):
@@ -140,10 +132,31 @@ class BlockDataResponse(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "block_x": 100,
-                "block_y": 64,
-                "block_z": 100,
-                "id": "minecraft:stone",
-                "properties": {"hardness": 1.5}
+                "block_x": 0,
+                "block_y": 0,
+                "block_z": 0,
+                "id": "deepslate",
+                "properties": {
+                    "axis": "y"
+                }
+            }
+        }
+
+
+class BiomeDataResponse(BaseModel):
+    """Biome data response at specific coordinates."""
+    
+    biome_x: int = Field(..., description="Biome X coordinate")
+    biome_y: int = Field(..., description="Biome Y coordinate")
+    biome_z: int = Field(..., description="Biome Z coordinate")
+    id: str = Field(..., description="Biome at the specified coordinates")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "biome_x": 0,
+                "biome_y": 0,
+                "biome_z": 0,
+                "id": "plains"
             }
         }

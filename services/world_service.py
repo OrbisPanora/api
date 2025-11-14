@@ -4,7 +4,7 @@ Singleton pattern to ensure only one World instance is loaded.
 """
 
 from typing import Optional
-
+from models.responses import WorldInfoResponse, ChunkDataResponse, AreaHeightmapResponse, TileDataResponse, BlockDataResponse, BiomeDataResponse
 from anvil import World
 from config import settings
 
@@ -54,7 +54,8 @@ class WorldService:
     
     def get_world_info(self) -> dict:
         """Get world information using the library's method."""
-        return self.world.get_world_info()
+        world_info_dict = self.world.get_world_info()
+        return WorldInfoResponse(**world_info_dict) if world_info_dict else None
     
     def is_loaded(self) -> bool:
         """Check if world is loaded."""
@@ -72,7 +73,8 @@ class WorldService:
         Returns:
             Chunk data dictionary or None if chunk not found
         """
-        return self.world.get_chunk_data(chunk_x, chunk_z, mode)
+        chunk_info_dict = self.world.get_chunk_data(chunk_x, chunk_z, mode)
+        return ChunkDataResponse(**chunk_info_dict) if chunk_info_dict else None
     
     def get_area_heightmap(self, x1: int, z1: int, x2: int, z2: int) -> dict:
         """
@@ -85,7 +87,8 @@ class WorldService:
         Returns:
             Area heightmap dictionary
         """
-        return self.world.get_area_heightmap(x1, z1, x2, z2)
+        area_heightmap_dict = self.get_area_heightmap(x1, z1, x2, z2)
+        return AreaHeightmapResponse(**area_heightmap_dict) if area_heightmap_dict else None
     
     def get_tile_data(self, tile_x: int, tile_z: int, tile_size: int = 16) -> dict:
         """
@@ -99,8 +102,9 @@ class WorldService:
         Returns:
             Tile data dictionary with all chunks
         """
-        return self.world.get_tile_data(tile_x, tile_z, tile_size)
-    
+        tile_data_dict = self.world.get_tile_data(tile_x, tile_z, tile_size)
+        return TileDataResponse(**tile_data_dict) if tile_data_dict else None
+
     def get_block_data(self, block_x: int, block_y: int, block_z: int) -> dict:
         """
         Get block data at specified coordinates.
@@ -114,13 +118,34 @@ class WorldService:
             Block data dictionary or None if block not found
         """
         block = self.world.get_block(block_x, block_y, block_z)
-        return {
+        block_data_dict = {
             "block_x": block_x,
             "block_y": block_y,
             "block_z": block_z,
             "id": str(block.id),
-            "properties": str(block.properties)
+            "properties": {str(key): str(value) for key, value in block.properties.items()}
         }
+        return BlockDataResponse(**block_data_dict) if block_data_dict else None
+    
+    def get_biome_data(self, biome_x: int, biome_y: int, biome_z: int) -> dict:
+        """
+        Get biome data at specified coordinates.
+        
+        Args:
+            biome_x: Biome X coordinate
+            biome_z: Biome Z coordinate
+        
+        Returns:
+            Biome data dictionary or None if biome not found
+        """
+        biome = self.world.get_biome(biome_x, biome_y, biome_z)
+        biome_data_dict = {
+            "biome_x": biome_x,
+            "biome_y": biome_y,
+            "biome_z": biome_z,
+            "id": str(biome.id),
+        }
+        return BiomeDataResponse(**biome_data_dict) if biome_data_dict else None
 
 _world_service: Optional[WorldService] = None
 
