@@ -4,27 +4,19 @@ Standardized response format for all endpoints.
 """
 
 from pydantic import BaseModel, Field
-from typing import Any, Optional, List
+from typing import Any, Optional, List, TypeVar, Generic
 from datetime import datetime
 
+TResponse = TypeVar("TResponseData")
 
-class APIResponse(BaseModel):
+class APIResponse(BaseModel, Generic[TResponse]):
     """Standardized API response wrapper."""
     
     status: str = Field(..., description="Response status: 'success' or 'error'")
-    data: Optional[Any] = Field(None, description="Response data")
+    data: Optional[TResponse] = Field(None, description="Response data")
     error: Optional[str] = Field(None, description="Error message if status is 'error'")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "success",
-                "data": {"key": "value"},
-                "error": None,
-                "timestamp": "2024-01-01T00:00:00"
-            }
-        }
 
 
 class WorldInfoResponse(BaseModel):
