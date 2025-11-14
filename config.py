@@ -36,6 +36,23 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
     
+    # Cache Configuration
+    cache_enabled: bool = True
+    cache_type: str = "memory"  # "memory" or "redis"
+    redis_url: str = "redis://localhost:6379"
+    cache_ttl_heightmap: int = 300  
+    cache_ttl_surface: int = 120   
+    cache_ttl_chunk: int = 600   
+    
+    # Rate Limiting
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 100 
+    rate_limit_window: int = 60    
+    
+    # Compression
+    compression_enabled: bool = True
+    compression_min_size: int = 500  
+    
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""

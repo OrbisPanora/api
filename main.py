@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from config import settings, validate_settings
 from routers import world_router, chunk_router, block_router, biome_router
 from services import get_world_service
+from services.cache_service import init_cache_service, get_cache_service
+from middleware import RateLimitMiddleware, GZipMiddleware
 
 
 @asynccontextmanager
@@ -25,6 +27,26 @@ async def lifespan(app: FastAPI):
     
     try:
         validate_settings()
+        
+        # Initialize cache service
+        if settings.cache_enabled:
+            ttl_config = {
+                "heightmap": settings.cache_ttl_heightmap,
+                "surface": settings.cache_ttl_surface,
+                "chunk": settings.cache_ttl_chunk
+            }
+            cache_service = init_cache_service(
+                settings.cache_type,
+                settings.redis_url,
+                ttl_config
+            )
+            print(f"Cache service initialized ({settings.cache_type})")
+            print(f"  - Heightmap TTL: {settings.cache_ttl_heightmap}s")
+            print(f"  - Surface TTL: {settings.cache_ttl_surface}s")
+            print(f"  - Chunk TTL: {settings.cache_ttl_chunk}s")
+        else:
+            print("Cache disabled")
+        
         world_service = get_world_service()
         print(f"World service initialized")
     except Exception as e:
@@ -55,7 +77,23 @@ app = FastAPI(
 )
 
 
-# Configure CORS
+# Configure middlewares
+# 1. Compression (first, to compress all responses)
+if settings.compression_enabled:
+    app.add_middleware(
+        GZipMiddleware,
+        minimum_size=settings.compression_min_size
+    )
+
+# 2. Rate Limiting
+app.add_middleware(
+    RateLimitMiddleware,
+    requests=settings.rate_limit_requests,
+    window=settings.rate_limit_window,
+    enabled=settings.rate_limit_enabled
+)
+
+# 3. CORS (last, to handle CORS for all responses)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
