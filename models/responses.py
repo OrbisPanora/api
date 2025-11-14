@@ -11,7 +11,7 @@ TResponse = TypeVar("TResponseData")
 
 class APIResponse(BaseModel, Generic[TResponse]):
     """Standardized API response wrapper."""
-    
+
     status: str = Field(..., description="Response status: 'success' or 'error'")
     data: Optional[TResponse] = Field(None, description="Response data")
     error: Optional[str] = Field(None, description="Error message if status is 'error'")
@@ -116,5 +116,47 @@ class TileDataResponse(BaseModel):
                 "start_chunk_z": 0,
                 "chunks": [],
                 "chunk_count": 256
+            }
+        }
+
+
+class BlockDataResponse(BaseModel):
+    """Block data response at specific coordinates."""
+    
+    block_x: int = Field(..., description="Block X coordinate")
+    block_y: int = Field(..., description="Block Y coordinate")
+    block_z: int = Field(..., description="Block Z coordinate")
+    id: str = Field(..., description="Type of the block")
+    properties: Optional[dict] = Field(None, description="Additional properties about the block")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "block_x": 0,
+                "block_y": 0,
+                "block_z": 0,
+                "id": "deepslate",
+                "properties": {
+                    "axis": "y"
+                }
+            }
+        }
+
+
+class BiomeDataResponse(BaseModel):
+    """Biome data response at specific coordinates."""
+    
+    biome_x: int = Field(..., description="Biome X coordinate")
+    biome_y: int = Field(..., description="Biome Y coordinate")
+    biome_z: int = Field(..., description="Biome Z coordinate")
+    id: str = Field(..., description="Biome at the specified coordinates")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "biome_x": 0,
+                "biome_y": 0,
+                "biome_z": 0,
+                "id": "plains"
             }
         }
