@@ -10,7 +10,7 @@ from datetime import datetime
 
 class APIResponse(BaseModel):
     """Standardized API response wrapper."""
-    
+
     status: str = Field(..., description="Response status: 'success' or 'error'")
     data: Optional[Any] = Field(None, description="Response data")
     error: Optional[str] = Field(None, description="Error message if status is 'error'")
@@ -124,5 +124,26 @@ class TileDataResponse(BaseModel):
                 "start_chunk_z": 0,
                 "chunks": [],
                 "chunk_count": 256
+            }
+        }
+
+
+class BlockDataResponse(BaseModel):
+    """Block data response at specific coordinates."""
+    
+    block_x: int = Field(..., description="Block X coordinate")
+    block_y: int = Field(..., description="Block Y coordinate")
+    block_z: int = Field(..., description="Block Z coordinate")
+    id: str = Field(..., description="Type of the block")
+    properties: Optional[dict] = Field(None, description="Additional properties about the block")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "block_x": 100,
+                "block_y": 64,
+                "block_z": 100,
+                "id": "minecraft:stone",
+                "properties": {"hardness": 1.5}
             }
         }

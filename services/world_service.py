@@ -100,6 +100,27 @@ class WorldService:
             Tile data dictionary with all chunks
         """
         return self.world.get_tile_data(tile_x, tile_z, tile_size)
+    
+    def get_block_data(self, block_x: int, block_y: int, block_z: int) -> dict:
+        """
+        Get block data at specified coordinates.
+        
+        Args:
+            block_x: Block X coordinate
+            block_y: Block Y coordinate
+            block_z: Block Z coordinate
+        
+        Returns:
+            Block data dictionary or None if block not found
+        """
+        block = self.world.get_block(block_x, block_y, block_z)
+        return {
+            "block_x": block_x,
+            "block_y": block_y,
+            "block_z": block_z,
+            "id": str(block.id),
+            "properties": str(block.properties)
+        }
 
 _world_service: Optional[WorldService] = None
 
