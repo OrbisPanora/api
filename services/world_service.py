@@ -4,7 +4,7 @@ Singleton pattern to ensure only one World instance is loaded.
 """
 
 from typing import Optional
-
+from models.responses import WorldInfoResponse
 from anvil import World
 from config import settings
 
@@ -54,7 +54,8 @@ class WorldService:
     
     def get_world_info(self) -> dict:
         """Get world information using the library's method."""
-        return self.world.get_world_info()
+        world_info_dict = self.world.get_world_info()
+        return WorldInfoResponse(**world_info_dict)
     
     def is_loaded(self) -> bool:
         """Check if world is loaded."""
