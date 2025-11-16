@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from config import settings, validate_settings
-from routers import world_router, chunk_router, block_router, biome_router
+from routers import world_router, chunk_router, block_router, biome_router, upload_router
 from services import get_world_service
 from services.cache_service import init_cache_service, get_cache_service
 from middleware import RateLimitMiddleware, GZipMiddleware
@@ -94,9 +94,10 @@ app.add_middleware(
 )
 
 # 3. CORS (last, to handle CORS for all responses)
+print(f"CORS origins configured: {settings.cors_origins_list}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=["http://localhost:4200", "http://localhost:3000", "http://localhost:52568", "http://localhost:57173", "*"],  # Force allow all for testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -108,6 +109,7 @@ app.include_router(world_router)
 app.include_router(chunk_router)
 app.include_router(block_router)
 app.include_router(biome_router)
+app.include_router(upload_router)
 
 
 # Root endpoint
@@ -128,14 +130,15 @@ async def root():
             "chunks": {
                 "get_chunk": "/api/chunks/{chunk_x}/{chunk_z}?mode=heightmap",
                 "area_heightmap": "/api/chunks/area/heightmap?x1=0&z1=0&x2=100&z2=100",
-                "tile": "/api/chunks/tile/{tile_x}/{tile_z}?size=16"
+                "tile": "/api/chunks/tile/{tile_x}/{tile_z}?size=16",
+                "viewport_render": "/api/chunks/viewport/render?center_x=0&center_z=0&view_distance=4"
             },
             "blocks": {
                 "get_block": "/api/blocks/{block_x}/{block_y}/{block_z}"
             },
-            "biomes": {
-                "get_biome": "/api/biomes/{biome_x}/{biome_y}/{biome_z}"
-            }
+            "upload": {
+                "world": "/api/upload/world (POST multipart/form-data)"
+            },
         }
     }
 

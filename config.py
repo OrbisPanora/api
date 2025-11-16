@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     api_version: str = "1.0.0"
     
     # CORS Configuration
-    cors_origins: str = "http://localhost:4200,http://localhost:3000"
+    cors_origins: str = "http://localhost:4200,http://localhost:3000,http://localhost:52568"
     
     # Logging
     log_level: str = "INFO"
@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100 
     rate_limit_window: int = 60    
     
+    # Upload Configuration
+    upload_max_size_mb: int = 100  # Maximum upload size in MB
+    upload_allowed_extensions: str = ".zip"  # Allowed file extensions
+    temp_world_dir: str = "./temp_worlds"  # Directory for extracted worlds
+    
+    # File handling
+    cleanup_temp_files: bool = True  # Clean up temp files after loading
+    max_temp_worlds: int = 5  # Maximum number of temp worlds to keep  
+    
     # Compression
     compression_enabled: bool = True
     compression_min_size: int = 500  
@@ -64,14 +73,12 @@ settings = Settings()
 
 def validate_settings():
     """Validate required settings."""
-    if not settings.world_path:
-        raise ValueError("WORLD_PATH environment variable is required")
-    
-    if not os.path.exists(settings.world_path):
+    # world_path is now optional - worlds will be loaded from uploads
+    if settings.world_path and not os.path.exists(settings.world_path):
         raise ValueError(f"World path does not exist: {settings.world_path}")
     
     print(f"Configuration loaded")
     print(f"  - World path: {settings.world_path}")
     print(f"  - Dimension: {settings.world_dimension}")
     print(f"  - API port: {settings.api_port}")
-    print(f"  - CORS origins: {', '.join(settings.cors_origins)}")
+    print(f"  - CORS origins: {settings.cors_origins}")
