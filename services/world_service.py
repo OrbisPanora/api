@@ -27,8 +27,10 @@ class WorldService:
     
     def __init__(self):
         """Initialize world service."""
-        if self._world is None:
-            self._load_world()
+        # Temporarily skip world loading to test API connectivity
+        # if self._world is None:
+        #     self._load_world()
+        pass
     
     def _load_world(self):
         """Load the Minecraft world."""
@@ -45,7 +47,7 @@ class WorldService:
     
     @property
     def world(self) -> World:
-        """Get the world instance."""
+        """Get the world instance with lazy loading."""
         if self._world is None:
             self._load_world()
         return self._world
@@ -197,10 +199,8 @@ class WorldService:
             return None
     
     def is_loaded(self) -> bool:
-        """Check if world is loaded."""
-        loaded = self._world is not None
-        print(f"[WorldService] is_loaded() check: {loaded}")
-        return loaded
+        """Check if world is loaded without triggering loading."""
+        return self._world is not None
     
     def get_chunk_data(self, chunk_x: int, chunk_z: int, mode: str = 'heightmap'):
         """
@@ -364,41 +364,43 @@ class WorldService:
 
             # Pre-calculate isometric projection constants
             # For proper isometric projection: 30-degree angle creates diamond shape
-            TILE_WIDTH = 24   # pixels per tile width (increased for better visibility)
-            TILE_HEIGHT = 12  # pixels per tile height (half of width for isometric)
-            BLOCK_HEIGHT = 8  # pixels per block height (reduced for better proportions)
+            TILE_WIDTH = 32   # pixels per tile width (match JavaScript)
+            TILE_HEIGHT = 16  # pixels per tile height (half of width for isometric)
+            BLOCK_HEIGHT = 12 # pixels per block height (match JavaScript)
 
             min_screen_x = float('inf')
             max_screen_x = float('-inf')
             min_screen_y = float('inf')
             max_screen_y = float('-inf')
 
-            # Simplified: Only scan surface blocks (much faster)
-            for local_x in range(0, 16, 2):  # Sample every 2 blocks for performance
-                for local_z in range(0, 16, 2):
-                    # Find highest non-air block (simplified surface detection)
-                    for y in range(100, 50, -1):  # Reasonable height range
+            # Scan complet et optimisé pour récupérer tous les blocs de surface
+            for local_x in range(0, 16):  # Couverture complète X
+                for local_z in range(0, 16):
+                    # Scanner plusieurs couches pour plus de détails visuels
+                    surface_blocks_found = 0
+                    max_surface_blocks = 3  # Nombre maximum de blocs visibles par colonne
+
+                    # Scanner de haut en bas pour trouver tous les blocs de surface
+                    for y in range(320, -64, -1):  # Plage complète de hauteur Minecraft
                         try:
                             block = chunk.get_block(local_x, y, local_z)
                             if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
                                 global_x = chunk_x * 16 + local_x
                                 global_z = chunk_z * 16 + local_z
 
-                                # Get biome for this position (optional, fallback if fails)
+                                # Obtenir le biome pour cette position
                                 try:
                                     biome = self.world.get_biome(global_x, y, global_z)
                                     biome_name = biome.name() if biome else "plains"
                                 except:
                                     biome_name = "plains"
 
-                                # Generate sprite key
-                                sprite_key = self._get_sprite_key(block.name(), biome_name)
-                                sprites_needed.add(sprite_key)
+                                # Utiliser le vrai nom du bloc
+                                block_name = block.name()
 
-                                # Calculate isometric screen position
-                                # Standard isometric projection: (x - z) for X, (x + z) for Y
-                                screen_x = (global_x - global_z) * (TILE_WIDTH // 2)
-                                screen_y = (global_x + global_z) * (TILE_HEIGHT // 2) - y * BLOCK_HEIGHT
+                                # Calculer les coordonnées isométriques côté serveur (mais ignorées côté client)
+                                screen_x = (global_x - global_z) * (TILE_WIDTH / 2)
+                                screen_y = (global_x + global_z) * (TILE_HEIGHT / 2) - y * BLOCK_HEIGHT
 
                                 # Update bounds
                                 min_screen_x = min(min_screen_x, screen_x)
@@ -407,25 +409,35 @@ class WorldService:
                                 max_screen_y = max(max_screen_y, screen_y + BLOCK_HEIGHT)
 
                                 render_blocks.append({
-                                    "screen_x": screen_x,
-                                    "screen_y": screen_y,
+                                    "screen_x": screen_x,  # Gardé pour compatibilité mais ignoré côté client
+                                    "screen_y": screen_y,  # Gardé pour compatibilité mais ignoré côté client
                                     "world_x": global_x,
                                     "world_y": y,
                                     "world_z": global_z,
-                                    "sprite": sprite_key,
-                                    "is_surface": True,
+                                    "block": block_name,
+                                    "biome": biome_name,
+                                    "sprite": self._get_sprite_key(block_name, biome_name),
+                                    "is_surface": (surface_blocks_found == 0),  # Premier bloc = surface
                                     "depth": y
                                 })
-                                break  # Found surface block, stop scanning down
+
+                                surface_blocks_found += 1
+                                # Limiter à quelques blocs par colonne pour éviter la surcharge
+                                if surface_blocks_found >= max_surface_blocks:
+                                    break
 
                         except Exception as e:
-                            # Skip problematic blocks
+                            # Skip les erreurs de blocs individuels
                             continue
 
-            # Sort blocks by depth (back to front)
-            render_blocks.sort(key=lambda b: b['depth'], reverse=True)
+            # Sort blocks by depth (back to front) - maintenant fait côté client
+            # render_blocks.sort(key=lambda b: b['depth'], reverse=True)
 
-            # Generate sprite data
+            # Generate sprite data (maintenu pour compatibilité)
+            sprites_needed = set()
+            for block in render_blocks:
+                sprites_needed.add(block["sprite"])
+
             sprites = {}
             for sprite_key in sprites_needed:
                 sprites[sprite_key] = self._get_sprite_data(sprite_key)
