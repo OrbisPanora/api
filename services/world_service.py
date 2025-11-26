@@ -18,6 +18,7 @@ class WorldService:
     
     _instance: Optional['WorldService'] = None
     _world: Optional[World] = None
+    _world_path: Optional[str] = None
     
     def __new__(cls):
         """Ensure only one instance exists (singleton pattern)."""
@@ -40,6 +41,7 @@ class WorldService:
                 settings.world_path,
                 dimension=settings.world_dimension
             )
+            self._world_path = settings.world_path
             print(f"World loaded successfully")
         except Exception as e:
             print(f"Failed to load world: {e}")
@@ -51,6 +53,11 @@ class WorldService:
         if self._world is None:
             self._load_world()
         return self._world
+    
+    @property
+    def world_path(self) -> Optional[str]:
+        """Get the path to the currently loaded world."""
+        return self._world_path
     
     def load_world_from_path(self, world_path: str, dimension: str = None):
         """
@@ -69,6 +76,7 @@ class WorldService:
                 world_path,
                 dimension=dimension
             )
+            self._world_path = world_path
             print(f"World loaded successfully from {world_path}")
             print(f"[WorldService] World instance updated: {self._world is not None}")
         except Exception as e:

@@ -4,7 +4,8 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 python-dotenv==1.0.0
 requests==2.31.0
-./orbispanora_parser-0.1-py3-none-any.whl
+python-multipart==0.0.20
+./orbispanora_lib-1.0.0-py3-none-any.whl
 
 # Optional dependencies for production
 # redis==5.0.1  # Uncomment for Redis cache support

@@ -63,6 +63,51 @@ async def get_current_world(
         )
 
 
+@router.post(
+    "/dimension",
+    summary="Change dimension",
+    description="Switch to a different dimension (overworld, nether, end)."
+)
+async def change_dimension(
+    dimension: str,
+    world_service: WorldService = Depends(get_world_service)
+) -> dict:
+    """
+    Change the current dimension.
+    
+    Args:
+        dimension: Target dimension ('overworld', 'nether', 'end')
+    
+    Returns:
+        - status: Success or error
+        - dimension: New dimension name
+    """
+    valid_dimensions = ['overworld', 'nether', 'end']
+    if dimension not in valid_dimensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid dimension. Must be one of: {valid_dimensions}"
+        )
+    
+    try:
+        world_path = world_service.world_path
+        if not world_path:
+            raise HTTPException(status_code=503, detail="No world loaded")
+        
+        world_service.load_world_from_path(world_path, dimension)
+        
+        return {
+            "status": "success",
+            "dimension": dimension,
+            "message": f"Switched to {dimension}"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to switch dimension: {str(e)}"
+        )
+
+
 @router.get(
     "/health",
     summary="Health check",
