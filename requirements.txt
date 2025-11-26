@@ -8,3 +8,5 @@ requests==2.31.0
 
 # Optional dependencies for production
 # redis==5.0.1  # Uncomment for Redis cache support
+
+python-multipart
