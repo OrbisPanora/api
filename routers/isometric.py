@@ -1,8 +1,8 @@
 """
 Isometric Viewer API - All Blocks Extraction
 =============================================
-Récupère TOUS les blocs non-air d'un ou plusieurs chunks.
-Modes: single (1 chunk), radius (plusieurs), list, all (toute la map)
+Retrieves ALL non-air blocks from one or more chunks.
+Modes: single (1 chunk), radius (multiple), list, all (entire map)
 """
 
 import asyncio
@@ -45,7 +45,7 @@ TRANSPARENT_BLOCKS = frozenset({
 
 
 class BlockData(NamedTuple):
-    """Structure légère pour un bloc avec coordonnées globales."""
+    """Lightweight structure for a block with global coordinates."""
     x: int
     y: int
     z: int
@@ -57,7 +57,7 @@ class BlockData(NamedTuple):
 
 
 class ChunkData(NamedTuple):
-    """Données d'un chunk avec tous ses blocs."""
+    """Chunk data with all its blocks."""
     chunk_x: int
     chunk_z: int
     blocks: List[BlockData]
@@ -65,7 +65,7 @@ class ChunkData(NamedTuple):
 
 
 class IsometricService:
-    """Service d'extraction de tous les blocs pour la vue isométrique."""
+    """Service for extracting all blocks for isometric view."""
     
     MAX_CACHE_SIZE = 256
     
@@ -83,15 +83,15 @@ class IsometricService:
         min_y: int = -64,
         max_y: int = 319
     ) -> Dict[str, Any]:
-        """Récupère tous les blocs des chunks spécifiés."""
+        """Retrieves all blocks from specified chunks."""
         start = time.time()
         unique_coords = list(set(chunk_coords))
         
-        # Traitement parallèle des chunks
+        # Parallel processing of chunks
         tasks = [self._process_chunk(world_service, cx, cz, min_y, max_y) for cx, cz in unique_coords]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Agrégation des résultats
+        # Aggregate results
         all_blocks = []
         valid_chunks = 0
         bounds = [float('inf'), float('-inf'), float('inf'), float('-inf'), float('inf'), float('-inf')]
@@ -108,7 +108,7 @@ class IsometricService:
                 bounds[4] = min(bounds[4], res.bounds[2])
                 bounds[5] = max(bounds[5], res.bounds[3])
         
-        # Calcul des bornes Y
+        # Calculate Y bounds
         if all_blocks:
             bounds[2] = min(b.y for b in all_blocks)
             bounds[3] = max(b.y for b in all_blocks)
@@ -136,7 +136,7 @@ class IsometricService:
         }
 
     async def _process_chunk(self, world_service, cx: int, cz: int, min_y: int, max_y: int) -> ChunkData:
-        """Traite un chunk avec mise en cache LRU."""
+        """Process a chunk with LRU caching."""
         cache_key = f"{cx}_{cz}_{min_y}_{max_y}"
         
         async with self._cache_lock:
@@ -155,7 +155,7 @@ class IsometricService:
             )
             
             async with self._cache_lock:
-                # Éviction LRU si cache plein
+                # LRU eviction if cache full
                 while len(self._cache) >= self.MAX_CACHE_SIZE and self._cache_order:
                     old = self._cache_order.pop(0)
                     self._cache.pop(old, None)
@@ -169,7 +169,7 @@ class IsometricService:
 
     @staticmethod
     def _extract_all_blocks(world_service, cx: int, cz: int, min_y: int, max_y: int) -> ChunkData:
-        """Extrait TOUS les blocs non-air d'un chunk (synchrone)."""
+        """Extracts ALL non-air blocks from a chunk (synchronous)."""
         blocks = []
         
         try:
@@ -190,7 +190,7 @@ class IsometricService:
                             if block:
                                 name = block.name()
                                 if name and name not in AIR_BLOCKS:
-                                    # Biome (fallback si erreur)
+                                    # Biome (fallback on error)
                                     try:
                                         biome = world_service.world.get_biome(gx, y, gz)
                                         biome_name = biome.name() if biome else "minecraft:plains"
@@ -208,7 +208,7 @@ class IsometricService:
             return ChunkData(cx, cz, [], (cx*16, cx*16+15, cz*16, cz*16+15))
 
     def scan_all_regions(self, world_service: WorldService) -> List[Tuple[int, int]]:
-        """Scanne toutes les régions et retourne les coordonnées de chunks."""
+        """Scans all regions and returns chunk coordinates."""
         region_dir = os.path.join(world_service.world_path, "region")
         if not os.path.exists(region_dir):
             return []
@@ -238,7 +238,7 @@ class IsometricService:
             gc.collect()
 
 
-# Instance globale
+# Global instance
 _service = IsometricService()
 def get_isometric_service(): return _service
 
@@ -250,29 +250,29 @@ router = APIRouter(prefix="/api/isometric", tags=["isometric"])
 @router.get("/blocks")
 async def get_blocks(
     mode: str = Query("radius", description="Mode: 'radius', 'list', 'all'"),
-    center_x: int = Query(0, description="Centre X (chunk coords)"),
-    center_z: int = Query(0, description="Centre Z (chunk coords)"),
-    radius: int = Query(2, ge=0, le=16, description="Rayon en chunks (0 = 1 seul chunk)"),
-    chunk_list: Optional[str] = Query(None, description="Liste: 'x,z;x,z;...'"),
+    center_x: int = Query(0, description="Center X (chunk coords)"),
+    center_z: int = Query(0, description="Center Z (chunk coords)"),
+    radius: int = Query(2, ge=0, le=16, description="Radius in chunks (0 = single chunk)"),
+    chunk_list: Optional[str] = Query(None, description="List: 'x,z;x,z;...'"),
     min_y: int = Query(-64, description="Y minimum"),
     max_y: int = Query(319, description="Y maximum"),
-    limit: int = Query(1024, description="Limite de chunks"),
+    limit: int = Query(1024, description="Chunk limit"),
     world_service: WorldService = Depends(get_world_service),
     iso_service: IsometricService = Depends(get_isometric_service)
 ):
     """
-    Récupère TOUS les blocs non-air des chunks sélectionnés.
+    Retrieves ALL non-air blocks from selected chunks.
     
     **Modes:**
-    - `radius`: Chunks autour de (center_x, center_z) avec le rayon spécifié
-    - `list`: Liste explicite de chunks (format: "0,0;1,0;1,1")
-    - `all`: Tous les chunks de la map (attention: peut être très lourd!)
+    - `radius`: Chunks around (center_x, center_z) with specified radius
+    - `list`: Explicit list of chunks (format: "0,0;1,0;1,1")
+    - `all`: All chunks in the map (warning: can be very heavy!)
     
-    **Exemples:**
+    **Examples:**
     - 1 chunk: `?mode=radius&center_x=0&center_z=0&radius=0`
-    - Zone 5x5: `?mode=radius&center_x=0&center_z=0&radius=2`
-    - Liste: `?mode=list&chunk_list=0,0;0,1;1,0`
-    - Toute la map: `?mode=all&limit=500`
+    - 5x5 area: `?mode=radius&center_x=0&center_z=0&radius=2`
+    - List: `?mode=list&chunk_list=0,0;0,1;1,0`
+    - Entire map: `?mode=all&limit=500`
     """
     if not world_service.is_loaded():
         raise HTTPException(503, "World not loaded. Upload a world first.")
@@ -302,7 +302,7 @@ async def get_blocks(
     else:
         raise HTTPException(400, f"Unknown mode: {mode}. Use 'radius', 'list', or 'all'")
     
-    # Appliquer la limite
+    # Apply limit
     total_requested = len(chunks)
     if total_requested > limit:
         chunks = chunks[:limit]
@@ -328,24 +328,24 @@ async def get_blocks(
 @router.get("/surface")
 async def get_surface_blocks(
     mode: str = Query("radius", description="Mode: 'radius', 'list', 'all'"),
-    center_x: int = Query(0, description="Centre X (chunk coords)"),
-    center_z: int = Query(0, description="Centre Z (chunk coords)"),
-    radius: int = Query(2, ge=0, le=32, description="Rayon en chunks"),
-    chunk_list: Optional[str] = Query(None, description="Liste: 'x,z;x,z;...'"),
-    limit: int = Query(2048, description="Limite de chunks"),
+    center_x: int = Query(0, description="Center X (chunk coords)"),
+    center_z: int = Query(0, description="Center Z (chunk coords)"),
+    radius: int = Query(2, ge=0, le=32, description="Radius in chunks"),
+    chunk_list: Optional[str] = Query(None, description="List: 'x,z;x,z;...'"),
+    limit: int = Query(2048, description="Chunk limit"),
     world_service: WorldService = Depends(get_world_service),
     iso_service: IsometricService = Depends(get_isometric_service)
 ):
     """
-    Récupère uniquement les BLOCS DE SURFACE (le bloc le plus haut à chaque X,Z).
-    Beaucoup plus léger que /blocks - idéal pour une vue isométrique.
+    Retrieves only SURFACE BLOCKS (the highest block at each X,Z).
+    Much lighter than /blocks - ideal for isometric view.
     
-    Retourne aussi les limites du monde visible.
+    Also returns the bounds of the visible world.
     """
     if not world_service.is_loaded():
         raise HTTPException(503, "World not loaded")
     
-    # Déterminer les chunks à charger
+    # Determine chunks to load
     chunks = []
     if mode == "radius":
         for cx in range(center_x - radius, center_x + radius + 1):
@@ -503,9 +503,9 @@ def _apply_global_culling(blocks: List[BlockData]) -> List[BlockData]:
 
 def _extract_surface_blocks(world_service, cx: int, cz: int) -> List[BlockData]:
     """
-    Extrait les blocs VISIBLES d'un chunk.
-    Un bloc est visible s'il a au moins une face exposée (adjacente à air ou transparent).
-    Inclut: surface du terrain, arbres, fleurs, entrées de grottes, falaises...
+    Extracts VISIBLE blocks from a chunk.
+    A block is visible if it has at least one exposed face (adjacent to air or transparent).
+    Includes: terrain surface, trees, flowers, cave entrances, cliffs...
     """
     blocks = []
     
@@ -514,7 +514,7 @@ def _extract_surface_blocks(world_service, cx: int, cz: int) -> List[BlockData]:
         if not chunk or isinstance(chunk, EmptyChunk):
             return []
         
-        # Pré-charger tous les blocs du chunk dans un dict pour accès rapide
+        # Pre-load all chunk blocks into a dict for fast access
         chunk_blocks = {}
         for lx in range(16):
             for lz in range(16):
@@ -528,35 +528,35 @@ def _extract_surface_blocks(world_service, cx: int, cz: int) -> List[BlockData]:
                     except:
                         continue
         
-        # Pour chaque bloc non-air, vérifier s'il a une face exposée
+        # For each non-air block, check if it has an exposed face
         directions = [(0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)]
         
         for (lx, y, lz), block_name in chunk_blocks.items():
             gx, gz = cx * 16 + lx, cz * 16 + lz
             
-            # Vérifier si au moins une face est exposée
+            # Check if at least one face is exposed
             has_exposed_face = False
             
             for dx, dy, dz in directions:
                 nx, ny, nz = lx + dx, y + dy, lz + dz
                 
-                # Hors limites Y = exposé
+                # Out of Y bounds = exposed
                 if ny < -64 or ny > 319:
                     has_exposed_face = True
                     break
                 
-                # Hors du chunk = on suppose exposé (simplifie le code)
+                # Outside chunk = assume exposed (simplifies code)
                 if nx < 0 or nx >= 16 or nz < 0 or nz >= 16:
                     has_exposed_face = True
                     break
                 
-                # Voisin = air ou transparent = face exposée
+                # Neighbor = air or transparent = face exposed
                 neighbor = chunk_blocks.get((nx, ny, nz))
                 if neighbor is None or neighbor in TRANSPARENT_BLOCKS:
                     has_exposed_face = True
                     break
             
-            # Les blocs transparents sont toujours visibles (feuilles, fleurs, etc.)
+            # Transparent blocks are always visible (leaves, flowers, etc.)
             if block_name in TRANSPARENT_BLOCKS:
                 has_exposed_face = True
             
@@ -578,12 +578,12 @@ def _extract_surface_blocks(world_service, cx: int, cz: int) -> List[BlockData]:
 
 @router.post("/cache/clear")
 async def clear_cache(iso_service: IsometricService = Depends(get_isometric_service)):
-    """Vide le cache des chunks."""
+    """Clear the chunk cache."""
     await iso_service.clear_cache()
     return APIResponse(status="success", data={"message": "Cache cleared"})
 
 
 @router.get("/stats")
 async def get_stats(iso_service: IsometricService = Depends(get_isometric_service)):
-    """Statistiques du service."""
+    """Service statistics."""
     return APIResponse(status="success", data=iso_service._stats)

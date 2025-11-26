@@ -381,32 +381,32 @@ class WorldService:
             min_screen_y = float('inf')
             max_screen_y = float('-inf')
 
-            # Scan complet et optimisé pour récupérer tous les blocs de surface
-            for local_x in range(0, 16):  # Couverture complète X
+            # Full optimized scan to retrieve all surface blocks
+            for local_x in range(0, 16):  # Full X coverage
                 for local_z in range(0, 16):
-                    # Scanner plusieurs couches pour plus de détails visuels
+                    # Scan multiple layers for more visual details
                     surface_blocks_found = 0
-                    max_surface_blocks = 3  # Nombre maximum de blocs visibles par colonne
+                    max_surface_blocks = 3  # Maximum visible blocks per column
 
-                    # Scanner de haut en bas pour trouver tous les blocs de surface
-                    for y in range(320, -64, -1):  # Plage complète de hauteur Minecraft
+                    # Scan from top to bottom to find all surface blocks
+                    for y in range(320, -64, -1):  # Full Minecraft height range
                         try:
                             block = chunk.get_block(local_x, y, local_z)
                             if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
                                 global_x = chunk_x * 16 + local_x
                                 global_z = chunk_z * 16 + local_z
 
-                                # Obtenir le biome pour cette position
+                                # Get biome for this position
                                 try:
                                     biome = self.world.get_biome(global_x, y, global_z)
                                     biome_name = biome.name() if biome else "plains"
                                 except:
                                     biome_name = "plains"
 
-                                # Utiliser le vrai nom du bloc
+                                # Use the actual block name
                                 block_name = block.name()
 
-                                # Calculer les coordonnées isométriques côté serveur (mais ignorées côté client)
+                                # Calculate isometric coordinates server-side (but ignored client-side)
                                 screen_x = (global_x - global_z) * (TILE_WIDTH / 2)
                                 screen_y = (global_x + global_z) * (TILE_HEIGHT / 2) - y * BLOCK_HEIGHT
 
@@ -417,31 +417,31 @@ class WorldService:
                                 max_screen_y = max(max_screen_y, screen_y + BLOCK_HEIGHT)
 
                                 render_blocks.append({
-                                    "screen_x": screen_x,  # Gardé pour compatibilité mais ignoré côté client
-                                    "screen_y": screen_y,  # Gardé pour compatibilité mais ignoré côté client
+                                    "screen_x": screen_x,  # Kept for compatibility but ignored client-side
+                                    "screen_y": screen_y,  # Kept for compatibility but ignored client-side
                                     "world_x": global_x,
                                     "world_y": y,
                                     "world_z": global_z,
                                     "block": block_name,
                                     "biome": biome_name,
                                     "sprite": self._get_sprite_key(block_name, biome_name),
-                                    "is_surface": (surface_blocks_found == 0),  # Premier bloc = surface
+                                    "is_surface": (surface_blocks_found == 0),  # First block = surface
                                     "depth": y
                                 })
 
                                 surface_blocks_found += 1
-                                # Limiter à quelques blocs par colonne pour éviter la surcharge
+                                # Limit to a few blocks per column to avoid overload
                                 if surface_blocks_found >= max_surface_blocks:
                                     break
 
                         except Exception as e:
-                            # Skip les erreurs de blocs individuels
+                            # Skip individual block errors
                             continue
 
-            # Sort blocks by depth (back to front) - maintenant fait côté client
+            # Sort blocks by depth (back to front) - now done client-side
             # render_blocks.sort(key=lambda b: b['depth'], reverse=True)
 
-            # Generate sprite data (maintenu pour compatibilité)
+            # Generate sprite data (kept for compatibility)
             sprites_needed = set()
             for block in render_blocks:
                 sprites_needed.add(block["sprite"])
