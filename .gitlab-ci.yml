@@ -62,6 +62,7 @@ build-api-image:
   only:
     - master
     - cicd/pipeline
+  when: on_success
 
 push-api-image:
   extends: .build-and-push-docker-image
@@ -76,6 +77,7 @@ push-api-image:
   only:
     - master
     - cicd/pipeline
+  when: on_success
 
 deploy-api:
     extends: .deploy-image
@@ -91,3 +93,4 @@ deploy-api:
     only:
       - master
       - cicd/pipeline
+    when: on_success
