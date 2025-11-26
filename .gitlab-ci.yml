@@ -48,7 +48,6 @@ sonarqube-check:
   allow_failure: true
   only:
     - master
-    - main
     - dev
     - cicd/pipeline
 
