@@ -87,6 +87,7 @@ deploy-api:
         CONTAINER_IMAGE_PATH: $CI_REGISTRY_IMAGE/orbispanora-api:latest
         NAMESPACE_TOKEN: $KUBE_NAMESPACE_TOKEN
         NAMESPACE_NAME: iut-inf63-projets-etudiants-orbispanora
+        CONTAINER_HTTP_PORT: 8000
     only:
       - master
       - cicd/pipeline
