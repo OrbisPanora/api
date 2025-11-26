@@ -6,10 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime
 import os
 import json
-from models.responses import APIResponse, WorldInfoResponse
-from services.world_service import WorldService, get_world_service
-from utils.errors import WorldNotLoadedError
+from models.responses import APIResponse, BlockJsonDataResponse
+from utils.errors import InvalidBlockProperties
+import logging
+from services.resource_service import get_json_block
 
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/resources",
@@ -36,67 +38,43 @@ async def get_image(
 
     return FileResponse(
         path=filepath,
-        media_type="image/png",
+        media_type="image/webp",
         filename=name
     )
 
 
 @router.get(
     "/json",
-    summary="retrieve image isométrique",
-    description="Return isometric image",
+    response_model=APIResponse[BlockJsonDataResponse],
+    summary="retrieve json of a block",
+    description="Return block's json",
     status_code=200
 )
 async def get_json(
     id: str,
     namespace: str = Query(default="minecraft"),
     properties: str = Query(default={})
-) -> dict:
-    
-    blockstates_path = f"resources/json/blockstates"
-    blocks_path = f"resources/json/blocks"
+) -> APIResponse[BlockJsonDataResponse]:
+    try:
+        json_data = get_json_block(id=id, namespace=namespace, properties=properties)
 
-    filename = id + '.json'
-
-    block = os.path.join(blockstates_path, filename)
-
-    if not os.path.exists(block):
-        raise HTTPException(status_code=404, detail="json not found")
-    
-    with open(block, 'r') as f:
-        block_data = json.load(f)
-    
-    if properties != {}:
-        for state, props in block_data["variants"].items():
-            attributes = dict(part.split("=") for part in state.split(","))
-
-            if all(k in block.properties and str(block.properties[k]) == v for k, v in attributes.items()):
-                model = props["model"]
-                break
-
-    else:
-        model = block_data[""]
+        if json_data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Json's {id} not found"
+            )
         
-    model_name = model.split("/")[-1]
-    json_file = model_name + '.json'
-    texture = {}
-    with open(os.path.join(block_models_path, json_file), 'r') as f:
-        model_data = json.load(f)
-    if len(model_data["textures"] == 1):
-        if "all" in model_data["textures"].keys():
-            texture.append({"top": model_data["textures"]["all"].split("/")[-1]+'.png'})
-            texture.append({"left": model_data["textures"]["all"].split("/")[-1]+'.png'})
-        else:
-            texture.append({"top": model_data["textures"][0].split("/")[-1]+'.png'})
-    else:
-        if "side" in model_data["textures"].keys():
-            texture.append({"top": model_data["textures"]["top"].split("/")[-1]+'.png'})
-            texture.append({"left": model_data["textures"]["side"].split("/")[-1]+'.png'})
-        else:
-            texture.append({"top": model_data["textures"]["top"].split("/")[-1]+'.png'})
-            texture.append({"left": model_data["textures"]["top"].split("/")[-1]+'.png'})
-
-    return {
-        "name": id,
-        "textures": texture
-    }
+        return APIResponse(
+            status="success",
+            data=json_data,
+            timestamp=datetime.utcnow()
+        )
+    except InvalidBlockProperties:
+        raise HTTPException(
+            status_code=400
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail = f"Block {id},  unknown or not found"
+        )
