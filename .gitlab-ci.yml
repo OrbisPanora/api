@@ -1,8 +1,3 @@
-workflow:
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "cicd/pipeline"'
-    - when: never
-
 stages:
   - test
   - sonar
@@ -49,7 +44,6 @@ sonarqube-check:
   only:
     - master
     - dev
-    - cicd/pipeline
 
 build-api-image:
   extends: .build-and-push-docker-image
@@ -61,7 +55,6 @@ build-api-image:
     DESTINATION_REGISTRY_IMAGE_VERSION: "latest"
   only:
     - master
-    - cicd/pipeline
   when: on_success
 
 push-api-image:
@@ -76,7 +69,6 @@ push-api-image:
     - build-api-image
   only:
     - master
-    - cicd/pipeline
   when: on_success
 
 deploy-api:
@@ -93,5 +85,4 @@ deploy-api:
         CONTAINER_CPU: 150m
     only:
       - master
-      - cicd/pipeline
     when: on_success
