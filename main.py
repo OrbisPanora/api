@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from config import settings, validate_settings
-from routers import world_router, chunk_router, block_router, biome_router, upload_router
+from routers import world_router, chunk_router, block_router, biome_router, upload_router, resource_router
 from services import get_world_service
 from services.cache_service import init_cache_service, get_cache_service
 from middleware import RateLimitMiddleware, GZipMiddleware
@@ -110,6 +110,7 @@ app.include_router(chunk_router)
 app.include_router(block_router)
 app.include_router(biome_router)
 app.include_router(upload_router)
+app.include_router(resource_router)
 
 
 # Root endpoint
@@ -139,6 +140,10 @@ async def root():
             "upload": {
                 "world": "/api/upload/world (POST multipart/form-data)"
             },
+            "resources": {
+                "images": "/api/resources/images/{image}",
+                "json": "/api/resources/json?id=diamond_block?namespace=minecraft?properties={}"
+            }
         }
     }
 
