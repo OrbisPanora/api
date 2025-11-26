@@ -36,3 +36,5 @@ logs/
 *.sqlite
 *.sqlite3
 
+/resources
+
