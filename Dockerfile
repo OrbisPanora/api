@@ -3,7 +3,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 COPY requirements.txt ./
-COPY orbispanora_parser-0.1-py3-none-any.whl ./
+COPY ./orbispanora_lib-1.0.0-py3-none-any.whl ./
 
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
