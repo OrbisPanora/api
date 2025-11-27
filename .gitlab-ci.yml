@@ -22,7 +22,7 @@ test:
   script:
     - pytest
   only:
-    - master
+    - main
     - cicd/pipeline
   when: manual
 
@@ -42,7 +42,7 @@ sonarqube-check:
     - sonar-scanner
   allow_failure: true
   only:
-    - master
+    - main
     - dev
 
 build-api-image:
@@ -54,7 +54,7 @@ build-api-image:
     DESTINATION_REGISTRY_IMAGE_NAME: $CI_REGISTRY_IMAGE/orbispanora-api
     DESTINATION_REGISTRY_IMAGE_VERSION: "latest"
   only:
-    - master
+    - main
   when: on_success
 
 push-api-image:
@@ -68,7 +68,7 @@ push-api-image:
   dependencies:
     - build-api-image
   only:
-    - master
+    - main
   when: on_success
 
 deploy-api:
@@ -84,5 +84,5 @@ deploy-api:
         CONTAINER_HTTP_PORT: 8000
         CONTAINER_CPU: 150m
     only:
-      - master
+      - main
     when: on_success
