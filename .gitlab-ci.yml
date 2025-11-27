@@ -1,0 +1,88 @@
+stages:
+  - test
+  - sonar
+  - build
+  - push
+  - deploy
+
+include:
+    - project: 'IUT_INF63/generic-ci'
+      ref: 'main'
+      file:
+        - 'build/.docker-build.yml' 
+        - 'deploy/.docker-deploy.yml'
+
+test:
+  stage: test
+  image: python:3.10
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install pytest
+    - pip install -r requirements.txt
+  script:
+    - pytest
+  only:
+    - master
+    - cicd/pipeline
+  when: manual
+
+sonarqube-check:
+  stage: sonar
+  image: 
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  
+    GIT_DEPTH: "0"  
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script: 
+    - sonar-scanner
+  allow_failure: true
+  only:
+    - master
+    - dev
+
+build-api-image:
+  extends: .build-and-push-docker-image
+  stage: build
+  variables: 
+    DOCKERFILE_RELATIVE_PATH: ./Dockerfile
+    DOCKERFILE_CONTEXT_PATH: .
+    DESTINATION_REGISTRY_IMAGE_NAME: $CI_REGISTRY_IMAGE/orbispanora-api
+    DESTINATION_REGISTRY_IMAGE_VERSION: "latest"
+  only:
+    - master
+  when: on_success
+
+push-api-image:
+  extends: .build-and-push-docker-image
+  stage: push
+  variables: 
+    DOCKERFILE_RELATIVE_PATH: ./Dockerfile
+    DOCKERFILE_CONTEXT_PATH: .
+    DESTINATION_REGISTRY_IMAGE_NAME: $CI_REGISTRY_IMAGE/orbispanora-api
+    DESTINATION_REGISTRY_IMAGE_VERSION: "latest"
+  dependencies:
+    - build-api-image
+  only:
+    - master
+  when: on_success
+
+deploy-api:
+    extends: .deploy-image
+    stage: deploy
+    dependencies:
+      - push-api-image
+    variables:
+        CONTAINER_NAME: orbispanora-api
+        CONTAINER_IMAGE_PATH: $CI_REGISTRY_IMAGE/orbispanora-api:latest
+        NAMESPACE_TOKEN: $KUBE_NAMESPACE_TOKEN
+        NAMESPACE_NAME: iut-inf63-projets-etudiants-orbispanora
+        CONTAINER_HTTP_PORT: 8000
+        CONTAINER_CPU: 150m
+    only:
+      - master
+    when: on_success

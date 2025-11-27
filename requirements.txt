@@ -9,3 +9,5 @@ python-multipart==0.0.20
 
 # Optional dependencies for production
 # redis==5.0.1  # Uncomment for Redis cache support
+
+python-multipart
