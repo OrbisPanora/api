@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     api_version: str = "1.0.0"
     
     # CORS Configuration
-    cors_origins: str = "http://localhost:4200,http://localhost:3000,http://localhost:52568"
+    cors_origins: str = "http://localhost:4200,http://localhost:3000,http://localhost:52568;http://localhost:4200/"
     
     # Logging
     log_level: str = "INFO"
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     
     # Rate Limiting
     rate_limit_enabled: bool = True
-    rate_limit_requests: int = 100 
+    rate_limit_requests: int = 10000  # Increased from 100
     rate_limit_window: int = 60    
     
     # Upload Configuration

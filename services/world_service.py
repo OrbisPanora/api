@@ -18,6 +18,7 @@ class WorldService:
     
     _instance: Optional['WorldService'] = None
     _world: Optional[World] = None
+    _world_path: Optional[str] = None
     
     def __new__(cls):
         """Ensure only one instance exists (singleton pattern)."""
@@ -27,8 +28,10 @@ class WorldService:
     
     def __init__(self):
         """Initialize world service."""
-        if self._world is None:
-            self._load_world()
+        # Temporarily skip world loading to test API connectivity
+        # if self._world is None:
+        #     self._load_world()
+        pass
     
     def _load_world(self):
         """Load the Minecraft world."""
@@ -38,6 +41,7 @@ class WorldService:
                 settings.world_path,
                 dimension=settings.world_dimension
             )
+            self._world_path = settings.world_path
             print(f"World loaded successfully")
         except Exception as e:
             print(f"Failed to load world: {e}")
@@ -45,10 +49,15 @@ class WorldService:
     
     @property
     def world(self) -> World:
-        """Get the world instance."""
+        """Get the world instance with lazy loading."""
         if self._world is None:
             self._load_world()
         return self._world
+    
+    @property
+    def world_path(self) -> Optional[str]:
+        """Get the path to the currently loaded world."""
+        return self._world_path
     
     def load_world_from_path(self, world_path: str, dimension: str = None):
         """
@@ -67,6 +76,7 @@ class WorldService:
                 world_path,
                 dimension=dimension
             )
+            self._world_path = world_path
             print(f"World loaded successfully from {world_path}")
             print(f"[WorldService] World instance updated: {self._world is not None}")
         except Exception as e:
@@ -197,10 +207,8 @@ class WorldService:
             return None
     
     def is_loaded(self) -> bool:
-        """Check if world is loaded."""
-        loaded = self._world is not None
-        print(f"[WorldService] is_loaded() check: {loaded}")
-        return loaded
+        """Check if world is loaded without triggering loading."""
+        return self._world is not None
     
     def get_chunk_data(self, chunk_x: int, chunk_z: int, mode: str = 'heightmap'):
         """
@@ -364,41 +372,43 @@ class WorldService:
 
             # Pre-calculate isometric projection constants
             # For proper isometric projection: 30-degree angle creates diamond shape
-            TILE_WIDTH = 24   # pixels per tile width (increased for better visibility)
-            TILE_HEIGHT = 12  # pixels per tile height (half of width for isometric)
-            BLOCK_HEIGHT = 8  # pixels per block height (reduced for better proportions)
+            TILE_WIDTH = 32   # pixels per tile width (match JavaScript)
+            TILE_HEIGHT = 16  # pixels per tile height (half of width for isometric)
+            BLOCK_HEIGHT = 12 # pixels per block height (match JavaScript)
 
             min_screen_x = float('inf')
             max_screen_x = float('-inf')
             min_screen_y = float('inf')
             max_screen_y = float('-inf')
 
-            # Simplified: Only scan surface blocks (much faster)
-            for local_x in range(0, 16, 2):  # Sample every 2 blocks for performance
-                for local_z in range(0, 16, 2):
-                    # Find highest non-air block (simplified surface detection)
-                    for y in range(100, 50, -1):  # Reasonable height range
+            # Full optimized scan to retrieve all surface blocks
+            for local_x in range(0, 16):  # Full X coverage
+                for local_z in range(0, 16):
+                    # Scan multiple layers for more visual details
+                    surface_blocks_found = 0
+                    max_surface_blocks = 3  # Maximum visible blocks per column
+
+                    # Scan from top to bottom to find all surface blocks
+                    for y in range(320, -64, -1):  # Full Minecraft height range
                         try:
                             block = chunk.get_block(local_x, y, local_z)
                             if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
                                 global_x = chunk_x * 16 + local_x
                                 global_z = chunk_z * 16 + local_z
 
-                                # Get biome for this position (optional, fallback if fails)
+                                # Get biome for this position
                                 try:
                                     biome = self.world.get_biome(global_x, y, global_z)
                                     biome_name = biome.name() if biome else "plains"
                                 except:
                                     biome_name = "plains"
 
-                                # Generate sprite key
-                                sprite_key = self._get_sprite_key(block.name(), biome_name)
-                                sprites_needed.add(sprite_key)
+                                # Use the actual block name
+                                block_name = block.name()
 
-                                # Calculate isometric screen position
-                                # Standard isometric projection: (x - z) for X, (x + z) for Y
-                                screen_x = (global_x - global_z) * (TILE_WIDTH // 2)
-                                screen_y = (global_x + global_z) * (TILE_HEIGHT // 2) - y * BLOCK_HEIGHT
+                                # Calculate isometric coordinates server-side (but ignored client-side)
+                                screen_x = (global_x - global_z) * (TILE_WIDTH / 2)
+                                screen_y = (global_x + global_z) * (TILE_HEIGHT / 2) - y * BLOCK_HEIGHT
 
                                 # Update bounds
                                 min_screen_x = min(min_screen_x, screen_x)
@@ -407,25 +417,35 @@ class WorldService:
                                 max_screen_y = max(max_screen_y, screen_y + BLOCK_HEIGHT)
 
                                 render_blocks.append({
-                                    "screen_x": screen_x,
-                                    "screen_y": screen_y,
+                                    "screen_x": screen_x,  # Kept for compatibility but ignored client-side
+                                    "screen_y": screen_y,  # Kept for compatibility but ignored client-side
                                     "world_x": global_x,
                                     "world_y": y,
                                     "world_z": global_z,
-                                    "sprite": sprite_key,
-                                    "is_surface": True,
+                                    "block": block_name,
+                                    "biome": biome_name,
+                                    "sprite": self._get_sprite_key(block_name, biome_name),
+                                    "is_surface": (surface_blocks_found == 0),  # First block = surface
                                     "depth": y
                                 })
-                                break  # Found surface block, stop scanning down
+
+                                surface_blocks_found += 1
+                                # Limit to a few blocks per column to avoid overload
+                                if surface_blocks_found >= max_surface_blocks:
+                                    break
 
                         except Exception as e:
-                            # Skip problematic blocks
+                            # Skip individual block errors
                             continue
 
-            # Sort blocks by depth (back to front)
-            render_blocks.sort(key=lambda b: b['depth'], reverse=True)
+            # Sort blocks by depth (back to front) - now done client-side
+            # render_blocks.sort(key=lambda b: b['depth'], reverse=True)
 
-            # Generate sprite data
+            # Generate sprite data (kept for compatibility)
+            sprites_needed = set()
+            for block in render_blocks:
+                sprites_needed.add(block["sprite"])
+
             sprites = {}
             for sprite_key in sprites_needed:
                 sprites[sprite_key] = self._get_sprite_data(sprite_key)

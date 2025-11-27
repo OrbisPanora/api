@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from config import settings, validate_settings
-from routers import world_router, chunk_router, block_router, biome_router, upload_router
+from routers import world_router, chunk_router, block_router, biome_router, upload_router, isometric_router
 from services import get_world_service
 from services.cache_service import init_cache_service, get_cache_service
 from middleware import RateLimitMiddleware, GZipMiddleware
@@ -97,8 +97,8 @@ app.add_middleware(
 print(f"CORS origins configured: {settings.cors_origins_list}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4200", "http://localhost:3000", "http://localhost:52568", "http://localhost:57173", "*"],  # Force allow all for testing
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=False,  # Must be False when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -110,6 +110,7 @@ app.include_router(chunk_router)
 app.include_router(block_router)
 app.include_router(biome_router)
 app.include_router(upload_router)
+app.include_router(isometric_router)
 
 
 # Root endpoint
@@ -143,18 +144,7 @@ async def root():
     }
 
 
-# Global exception handler
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    """Handle all uncaught exceptions."""
-    return JSONResponse(
-        status_code=500,
-        content={
-            "status": "error",
-            "error": str(exc),
-            "detail": "Internal server error"
-        }
-    )
+# Global exception handler removed to allow FastAPI's default exception handling
 
 
 if __name__ == "__main__":
