@@ -12,6 +12,10 @@ ENV/
 dist/
 build/
 
+api/
+isoview/
+temp_worlds/
+
 # IDE
 .idea/
 .vscode/
@@ -22,6 +26,7 @@ build/
 # Environment variables
 .env
 .env.local
+.env.test
 
 # macOS
 .DS_Store
