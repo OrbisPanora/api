@@ -27,21 +27,28 @@ logger = logging.getLogger(__name__)
 # Air blocks to ignore
 AIR_BLOCKS = frozenset({'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', None, ''})
 
-# Transparent blocks that don't block visibility
+# Transparent blocks (exact matches for backward compatibility)
 TRANSPARENT_BLOCKS = frozenset({
-    'minecraft:glass', 'minecraft:glass_pane', 'minecraft:water', 'minecraft:ice', 'minecraft:frosted_ice',
+    'minecraft:glass', 'minecraft:glass_pane', 'minecraft:water', 'minecraft:ice',
     'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:birch_leaves',
     'minecraft:jungle_leaves', 'minecraft:acacia_leaves', 'minecraft:dark_oak_leaves',
     'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves', 'minecraft:mangrove_leaves',
-    'minecraft:cherry_leaves', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
-    'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch', 'minecraft:wall_torch',
-    'minecraft:flower', 'minecraft:dandelion', 'minecraft:poppy', 'minecraft:blue_orchid',
-    'minecraft:allium', 'minecraft:azure_bluet', 'minecraft:red_tulip', 'minecraft:orange_tulip',
-    'minecraft:white_tulip', 'minecraft:pink_tulip', 'minecraft:oxeye_daisy', 'minecraft:cornflower',
-    'minecraft:lily_of_the_valley', 'minecraft:sunflower', 'minecraft:lilac', 'minecraft:rose_bush',
-    'minecraft:peony', 'minecraft:cobweb', 'minecraft:ladder', 'minecraft:rail', 'minecraft:powered_rail',
-    'minecraft:detector_rail', 'minecraft:activator_rail', 'minecraft:iron_bars', 'minecraft:chain',
+    'minecraft:cherry_leaves', 'minecraft:tall_grass', 'minecraft:short_grass',
+    'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch',
 })
+
+# Transparent block patterns (partial matches for flexibility)
+TRANSPARENT_PATTERNS = ('glass', 'leaves', 'water', 'ice', 'tall_grass', 'short_grass', 
+                        'fern', 'vine', 'torch', 'flower', 'sapling')
+
+def is_transparent(block_name: str) -> bool:
+    """Check if a block is transparent (flexible pattern matching)."""
+    if not block_name:
+        return True
+    if block_name in TRANSPARENT_BLOCKS:
+        return True
+    name_lower = block_name.lower()
+    return any(pattern in name_lower for pattern in TRANSPARENT_PATTERNS)
 
 
 class BlockData(NamedTuple):
@@ -396,7 +403,7 @@ async def get_surface_blocks(
             valid_chunks += 1
             all_raw_blocks.extend(res)
     
-    # Now apply culling on the aggregated blocks (global view)
+    # Apply optimized isometric culling
     visible_blocks = _apply_global_culling(all_raw_blocks)
     
     # Convert to dict and compute bounds
@@ -468,36 +475,68 @@ def _extract_all_blocks_simple(world_service, cx: int, cz: int) -> List[BlockDat
 
 
 def _apply_global_culling(blocks: List[BlockData]) -> List[BlockData]:
-    """Apply visibility culling on aggregated blocks (global view)."""
+    """
+    Optimized isometric surface culling.
+    
+    Strategy:
+    1. Always keep the highest solid block per (x,z) column = guaranteed surface
+    2. Always keep transparent blocks (trees, flowers, etc.)
+    3. Keep blocks with at least one face exposed to the isometric camera
+    """
     if not blocks:
         return []
+    
+    logger.info(f"Culling {len(blocks)} blocks...")
     
     # Build position lookup
     block_map = {(b.x, b.y, b.z): b.block for b in blocks}
     
+    # Step 1: Find highest solid block per column - surface level
+    columns: dict = {}  # (x,z) -> highest_y
+    for b in blocks:
+        if not is_transparent(b.block):
+            key = (b.x, b.z)
+            if key not in columns or b.y > columns[key]:
+                columns[key] = b.y
+    
     visible = []
-    directions = [(0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)]
+    seen = set()
+    
+    # Depth: how many blocks below surface to include (for terrain depth)
+    SURFACE_DEPTH = 3
+    
+    # Directions for isometric camera at (+X, +Y, +Z)
+    iso_directions = [(0, 1, 0), (1, 0, 0), (0, 0, 1)]
     
     for b in blocks:
-        # Transparent blocks are always visible
-        if b.block in TRANSPARENT_BLOCKS:
-            visible.append(b)
+        pos = (b.x, b.y, b.z)
+        if pos in seen:
             continue
-        
-        # Check if at least one face is exposed
-        has_exposed = False
-        for dx, dy, dz in directions:
-            neighbor_pos = (b.x + dx, b.y + dy, b.z + dz)
-            neighbor = block_map.get(neighbor_pos)
             
-            # Exposed if no neighbor OR neighbor is transparent/air
-            if neighbor is None or neighbor in TRANSPARENT_BLOCKS or neighbor in AIR_BLOCKS:
-                has_exposed = True
-                break
+        include = False
+        highest_y = columns.get((b.x, b.z), -999)
         
-        if has_exposed:
+        # Rule 1: Transparent blocks always visible
+        if is_transparent(b.block):
+            include = True
+        
+        # Rule 2: Blocks within SURFACE_DEPTH of the highest = visible surface
+        elif b.y >= highest_y - SURFACE_DEPTH:
+            include = True
+        
+        # Rule 3: Deeper blocks - only if isometric face exposed (caves, cliffs)
+        else:
+            for dx, dy, dz in iso_directions:
+                neighbor = block_map.get((b.x + dx, b.y + dy, b.z + dz))
+                if neighbor is None or is_transparent(neighbor):
+                    include = True
+                    break
+        
+        if include:
             visible.append(b)
+            seen.add(pos)
     
+    logger.info(f"Culling: {len(blocks)} -> {len(visible)} blocks")
     return visible
 
 
