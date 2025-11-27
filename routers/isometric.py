@@ -476,12 +476,12 @@ def _extract_all_blocks_simple(world_service, cx: int, cz: int) -> List[BlockDat
 
 def _apply_global_culling(blocks: List[BlockData]) -> List[BlockData]:
     """
-    Isometric surface culling optimisé.
+    Optimized isometric surface culling.
     
-    Stratégie:
-    1. Toujours garder le bloc solide le plus haut de chaque colonne (x,z) = surface garantie
-    2. Toujours garder les blocs transparents (arbres, fleurs, etc.)
-    3. Garder les blocs avec au moins une face exposée vers la caméra isométrique
+    Strategy:
+    1. Always keep the highest solid block per (x,z) column = guaranteed surface
+    2. Always keep transparent blocks (trees, flowers, etc.)
+    3. Keep blocks with at least one face exposed to the isometric camera
     """
     if not blocks:
         return []
