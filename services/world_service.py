@@ -290,6 +290,7 @@ class WorldService:
                     palette=None
                 )
             
+            # changais par simoni
             elif mode == "isometric":
                 # Optimized for isometric rendering - only visible surface blocks
                 isometric_blocks = []
