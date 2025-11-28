@@ -76,7 +76,7 @@ def check_parent_tintindex(model_data: dict) -> bool:
 
     LOGGER.debug(parent_data)
     if "elements" in parent_data:
-        if ("tintindex" in parent_data["elements"][0]["faces"]["down"]):
+        if ("tintindex" in parent_data["elements"][0]["faces"][face] for face in parent_data["elements"][0]["faces"]):
             return True
     return False
 
