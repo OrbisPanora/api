@@ -7,7 +7,7 @@ import logging
 import requests
 import pytest
 from datetime import datetime
-from api.tests.utilities.mock_api import api_available, api_without_world
+from tests.utilities.mock_api import api_available, api_without_world
 
 LOGGER = logging.getLogger(__name__)
 BASE_URL = "http://localhost:8001/api/worlds"
