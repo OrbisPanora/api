@@ -12,6 +12,11 @@ ENV/
 dist/
 build/
 
+api/
+isoview/
+temp_worlds/
+resources/
+
 # IDE
 .idea/
 .vscode/
@@ -35,6 +40,4 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
-
-/resources
 
