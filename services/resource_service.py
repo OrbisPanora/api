@@ -3,6 +3,7 @@ import os
 from utils.errors import InvalidBlockProperties
 from models.responses import BlockJsonDataResponse
 import logging
+import random
 
 LOGGER = logging.getLogger(__file__)
 
@@ -47,7 +48,12 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
             raise InvalidBlockProperties("Properties are undefined but must be defined")
     else:
         try:
-            model = blockstate_data["variants"][""]["model"]
+            if isinstance(blockstate_data["variants"][""], list):
+                lenght_variants = len(blockstate_data["variants"][""])
+                nb = random.randint(0,lenght_variants)
+                model = blockstate_data["variants"][""][nb]["model"]
+            else:
+                model = blockstate_data["variants"][""]["model"]
         except:
             raise InvalidBlockProperties("Properties are defined but must be empty")
             
