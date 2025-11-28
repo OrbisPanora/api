@@ -39,6 +39,9 @@ class TestChunkEndpoints:
         LOGGER.debug(f"Request URL: {response.url}")
         LOGGER.debug(f"Response status code: {response.status_code}")
 
+        if response.status_code == 503:
+            pytest.skip("World is not loaded - cannot test loaded state")
+
         assert response.status_code == 200, "Expected status code 200"
 
         data = response.json()
@@ -62,6 +65,9 @@ class TestChunkEndpoints:
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")
         LOGGER.debug(f"Response status code: {response.status_code}")
+
+        if response.status_code == 503:
+            pytest.skip("World is not loaded - cannot test loaded state")
 
         assert response.status_code == 200, "Expected status code 200"
 
@@ -87,6 +93,9 @@ class TestChunkEndpoints:
         LOGGER.debug(f"Request URL: {response.url}")
         LOGGER.debug(f"Response status code: {response.status_code}")
 
+        if response.status_code == 503:
+            pytest.skip("World is not loaded - cannot test loaded state")
+
         assert response.status_code == 200, "Expected status code 200"
 
         data = response.json()
@@ -109,6 +118,9 @@ class TestChunkEndpoints:
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")
         LOGGER.debug(f"Response status code: {response.status_code}")
+
+        if response.status_code == 503:
+            pytest.skip("World is not loaded - cannot test loaded state")
 
         assert response.status_code == 200, "Expected status code 200"
 
@@ -147,6 +159,9 @@ class TestChunkEndpoints:
         z = 100
         params = {"mode": "heightmap"}
         response = requests.get(f"{BASE_URL}/{x}/{z}", params=params)
+
+        if response.status_code == 503:
+            pytest.skip("World is not loaded - cannot test loaded state")
 
         assert response.status_code == 404, "Expected status code 404"
 

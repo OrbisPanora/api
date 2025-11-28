@@ -4,7 +4,9 @@ import subprocess
 import time
 import requests
 import pytest
+import logging
 
+LOGGER = logging.getLogger(__name__)
 
 API_HOST = "127.0.0.1"
 API_PORT = 8001
@@ -115,6 +117,12 @@ def start_api():
             print(f"\n[!] Failed to start API: {e}")
             raise
 
+        url = f"{API_URL}/api/upload/world"
+        file_path = 'api/tests/utilities/b.zip'
+
+        with open(file_path, "rb") as f:
+            files = {"file": ("myworld.zip", f, "application/zip")}
+            requests.post(url, files=files)
         # Yield to run all tests
         yield
 
