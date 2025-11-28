@@ -24,6 +24,7 @@ test:
   only:
     - main
     - cicd/pipeline
+    - fixTests
   when: manual
 
 sonarqube-check:
