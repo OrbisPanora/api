@@ -118,7 +118,8 @@ def start_api():
             raise
 
         url = f"{API_URL}/api/upload/world"
-        file_path = 'api/tests/utilities/b.zip'
+        base = os.path.dirname(__file__)
+        file_path = os.path.join(base, "utilities", "b.zip")
 
         with open(file_path, "rb") as f:
             files = {"file": ("myworld.zip", f, "application/zip")}
