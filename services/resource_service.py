@@ -2,8 +2,11 @@ import json
 import os
 from utils.errors import InvalidBlockProperties
 from models.responses import BlockJsonDataResponse
+import logging
 
-def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}", biome: str = None) -> BlockJsonDataResponse:
+LOGGER = logging.getLogger(__file__)
+
+def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}", biome: str = "biome") -> BlockJsonDataResponse:
 
     blockstate_data = _get_blockstate_data(id)
     model_data = _get_block_data(blockstate_data, json.loads(properties))
@@ -65,14 +68,15 @@ def check_parent_tintindex(model_data: dict) -> bool:
     with open(filepath, 'r') as f:
         parent_data= json.load(f)
 
+    LOGGER.debug(parent_data)
     if "elements" in parent_data:
-        if ("tintindex" in parent_data["elements"]["faces"]["down"]):
+        if ("tintindex" in parent_data["elements"][0]["faces"]["down"]):
             return True
     return False
 
 def get_biomes_values(biome: str) -> tuple[float,float]:
     biome_path = f"resources/json/biome"
-    biome = biome.replace(" ", "_").lower()
+    biome = biome.replace(" ", "_").lower() + '.json'
 
     file = os.path.join(biome_path, biome)
 
@@ -130,7 +134,7 @@ def _get_texture_isometric(model_data: dict, biome: str):
         texture["left"] = "default_left.webp"
 
     if check_parent_tintindex(model_data):
-        if biome == None:
+        if biome == "biome":
             raise Exception()
         color_data = get_biomes_values(biome)
         texture["downfall"] = color_data[0]
