@@ -44,7 +44,7 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
             raise InvalidBlockProperties("Properties are undefined but must be defined")
     else:
         try:
-            model = block_data["variants"][""]["model"]
+            model = z["variants"][""]["model"]
         except:
             raise InvalidBlockProperties("Properties are defined but must be empty")
             
