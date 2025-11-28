@@ -4,7 +4,7 @@ import requests
 import pytest
 from datetime import datetime
 
-from tests.utilities.mock_api import api_available, api_without_world
+from utilities.mock_api import api_available, api_without_world
 
 LOGGER = logging.getLogger(__name__)
 BASE_URL = "http://localhost:8001/api/chunks"
