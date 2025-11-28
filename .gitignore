@@ -36,5 +36,4 @@ logs/
 *.sqlite
 *.sqlite3
 
-/resources
-
+/temp_worlds
