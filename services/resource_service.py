@@ -3,12 +3,12 @@ import os
 from utils.errors import InvalidBlockProperties
 from models.responses import BlockJsonDataResponse
 
-def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}", biome: str = None) -> BlockJsonDataResponse:
+def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}") -> BlockJsonDataResponse:
 
     blockstate_data = _get_blockstate_data(id)
     model_data = _get_block_data(blockstate_data, json.loads(properties))
 
-    texture = _get_texture_isometric(model_data, biome)
+    texture = _get_texture_isometric(model_data)
 
     json_data = {
         "block_name": id,
@@ -44,7 +44,7 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
             raise InvalidBlockProperties("Properties are undefined but must be defined")
     else:
         try:
-            model = blockstate_data["variants"][""]["model"]
+            model = block_data["variants"][""]["model"]
         except:
             raise InvalidBlockProperties("Properties are defined but must be empty")
             
@@ -54,50 +54,10 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
     filepath = os.path.join(blocks_path, json_file)
 
     with open(filepath, 'r') as f:
-        model_data = json.load(f)
+            model_data = json.load(f)
     return model_data
 
-def check_parent_tintindex(model_data: dict) -> bool:
-    blocks_path = f"resources/json/blocks"
-    parent_name = model_data["parent"].split("/")[-1] +'.json'
-    filepath = os.path.join(blocks_path, parent_name)
-
-    with open(filepath, 'r') as f:
-        parent_data= json.load(f)
-
-    if ("tintindex" in parent_data["elements"]["faces"]["down"]):
-        return True
-    return False
-
-def get_biomes_values(biome: str) -> tuple[float,float]:
-    downfall = 0.0
-    temperature = 0.0
-
-    if biome in ["badlands","wooded_badlands","eroded_badlands","desert", "windswept_savanna"]:
-        temperature = 2.0
-    elif biome in ["the_void", "river", "warm_ocean", "lukewarm_ocean", "deep_lukewarm_ocean", "ocean", "deep_ocean", "cold_ocean", "deep_cold_ocean", "deep_frozen_ocean"]:
-        downfall == 0.5
-        temperature == 0.5
-    elif biome == "bamboo_jungle":
-        downfall = 0.9
-        temperature = 0.95
-    elif biome == "basalt_deltas":
-        temperature = 2.0
-    elif biome == "beach":
-        downfall = 0.4
-        temperature = 0.8
-    elif biome == "birch_forest":
-        downfall = 0.6
-        temperature = 0.6
-    elif biome == "cherry_grove":
-        downfall = 0.8
-        temperature = 0.5
-    
-    return (downfall, temperature)
-
-
-
-def _get_texture_isometric(model_data: dict, biome: str):
+def _get_texture_isometric(model_data: dict):
     texture = {}
     texture_top_iso = None
     texture_left_iso = None
@@ -141,10 +101,5 @@ def _get_texture_isometric(model_data: dict, biome: str):
         texture["left"] = f"{texture_left_name}_left.webp"
     else:
         texture["left"] = "default_left.webp"
-
-    # if check_parent_tintindex(model_data):
-    #     if biome == None:
-    #         raise Exception()
-        
 
     return texture
