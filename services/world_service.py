@@ -291,10 +291,18 @@ class WorldService:
                 )
             
             # changais par simoni
+            # pour afficher un chunk a la fois
             elif mode == "isometric":
                 # Optimized for isometric rendering - only visible surface blocks
                 isometric_blocks = []
                 heightmap = [[0 for _ in range(16)] for _ in range(16)]
+                min_value = 320
+                AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
+                global_biome_x = chunk_x * 16
+                global_biome_z = chunk_z * 16
+                global_chunk_x = abs(global_biome_x)
+                global_chunk_z = abs(global_biome_z)
+
                 
                 # First pass: build heightmap and collect all surface blocks
                 for z in range(16):
@@ -303,24 +311,46 @@ class WorldService:
                         for y in range(320, -64, -1):
                             try:
                                 block = chunk.get_block(x, y, z)
-                                if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
+                                if block and block.name() not in AIR:
                                     heightmap[z][x] = y
-                                    
-                                    # Get biome at this position
-                                    global_x = chunk_x * 16 + x
-                                    global_z = chunk_z * 16 + z
-                                    biome = self.world.get_biome(global_x, y, global_z)
-                                    
-                                    # For isometric view, we want blocks that are visible from above
-                                    # Include the surface block and some blocks below for depth
-                                    for depth_y in range(y, max(-64, y-3), -1):
+                                    if y < min_value:
+                                        min_value = y
+                                    break
+                            except:
+                                continue
+                
+                #min_value = min(itertools.chain.from_iterable(heightmap))
+                for z in range(16):
+                    for x in range(16):
+                        for y in range(320, -64, -1):
+                            try:
+                                block = chunk.get_block(x, y, z)
+                                if block and block.name() not in AIR:
+                                    #heightmap[z][x] = y
+                                    for depth_y in range(y, min_value, -1):
                                         try:
                                             depth_block = chunk.get_block(x, depth_y, z)
-                                            if depth_block and depth_block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
+                                            if depth_block and depth_block.name() not in AIR:
+                                                # Get biome at this position
+                                                global_x = global_biome_x + x
+                                                global_z = global_biome_z + z
+                                                biome = self.world.get_biome(global_x, depth_y, global_z)
+
+                                                i=abs(abs(global_x) - global_chunk_x)
+                                                j=abs(abs(global_z) - global_chunk_z)
+                                                k=abs(abs(depth_y) - abs(min_value))
+
+                                                # remplacer 0.16 et 0.08 par des constantes passer ou definies ailleurs
+                                                # c'est sont des vectors de projection isometrique d'un block
+                                                x_final = 0.16 * (i - j)
+                                                y_final = -0.08*(i+j)+0.08*16 + 0.16*k
+                                                x_final = round(x_final * 100) / 100
+                                                y_final = round(y_final * 100) / 100
+
                                                 isometric_blocks.append({
-                                                    "x": global_x,
-                                                    "y": depth_y,
-                                                    "z": global_z,
+                                                    "x": x_final,
+                                                    "y": k,
+                                                    "z": y_final,
                                                     "block": depth_block.name(),
                                                     "biome": biome.name() if biome else "unknown",
                                                     "is_surface": (depth_y == y)
@@ -330,7 +360,7 @@ class WorldService:
                                     break
                             except:
                                 continue
-                
+
                 return ChunkDataResponse(
                     chunk_x=chunk_x,
                     chunk_z=chunk_z,
