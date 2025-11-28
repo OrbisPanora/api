@@ -3,6 +3,7 @@ Resource endpoints for the API.
 Provides resources for each minecraft block.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from datetime import datetime
 import os
 import json
@@ -39,7 +40,7 @@ async def get_image(
     return FileResponse(
         path=filepath,
         media_type="image/webp",
-        filename=name
+        filename=image
     )
 
 
