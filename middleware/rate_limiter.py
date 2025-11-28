@@ -88,7 +88,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     FastAPI middleware for rate limiting.
     """
     
-    def __init__(self, app, requests: int, window: int, enabled: bool = True):
+    def __init__(self, app, *, requests: int, window: int, enabled: bool = True):
         super().__init__(app)
         self.rate_limiter = RateLimiter(requests, window)
         self.enabled = enabled
