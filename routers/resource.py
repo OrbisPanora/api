@@ -53,10 +53,11 @@ async def get_image(
 async def get_json(
     id: str,
     namespace: str = Query(default="minecraft"),
-    properties: str = Query(default={})
+    properties: str = Query(default={}),
+    biome: str = Query(default=None)
 ) -> APIResponse[BlockJsonDataResponse]:
     try:
-        json_data = get_json_block(id=id, namespace=namespace, properties=properties)
+        json_data = get_json_block(id=id, namespace=namespace, properties=properties, biome=biome)
 
         if json_data is None:
             raise HTTPException(
