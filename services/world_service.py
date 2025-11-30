@@ -295,16 +295,22 @@ class WorldService:
             elif mode == "isometric":
                 # Optimized for isometric rendering - only visible surface blocks
                 isometric_blocks = []
-                heightmap = [[0 for _ in range(16)] for _ in range(16)]
+                #heightmap = [[0 for _ in range(16)] for _ in range(16)] # inutile pour moi
                 min_value = 320
                 AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
+                AIR_LEAVES = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:acacia_leaves', 
+                              'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
+                              'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
+                              'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
+                              'minecraft:oak_leaves', 'minecraft:spruce_leaves']
+                # TODO: ajouter vine, staires, grass, flowers, etc
                 global_biome_x = chunk_x * 16
                 global_biome_z = chunk_z * 16
                 global_chunk_x = abs(global_biome_x)
                 global_chunk_z = abs(global_biome_z)
 
                 
-                # First pass: build heightmap and collect all surface blocks
+                # First pass: finde lowest surface block
                 for z in range(16):
                     for x in range(16):
                         # Find the highest solid block (surface)
@@ -312,25 +318,24 @@ class WorldService:
                             try:
                                 block = chunk.get_block(x, y, z)
                                 if block and block.name() not in AIR:
-                                    heightmap[z][x] = y
+                                    # heightmap[z][x] = y
                                     if y < min_value:
                                         min_value = y
                                     break
                             except:
                                 continue
                 
-                #min_value = min(itertools.chain.from_iterable(heightmap))
+                # second pass: select all blocks from max height and lowest surface
                 for z in range(16):
                     for x in range(16):
                         for y in range(320, -64, -1):
                             try:
                                 block = chunk.get_block(x, y, z)
                                 if block and block.name() not in AIR:
-                                    #heightmap[z][x] = y
                                     for depth_y in range(y, min_value, -1):
                                         try:
                                             depth_block = chunk.get_block(x, depth_y, z)
-                                            if depth_block and depth_block.name() not in AIR:
+                                            if depth_block and depth_block.name() not in AIR: # peut etre controle de tro
                                                 # Get biome at this position
                                                 global_x = global_biome_x + x
                                                 global_z = global_biome_z + z
@@ -338,7 +343,7 @@ class WorldService:
 
                                                 i=abs(abs(global_x) - global_chunk_x)
                                                 j=abs(abs(global_z) - global_chunk_z)
-                                                k=abs(abs(depth_y) - abs(min_value))
+                                                k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
 
                                                 # remplacer 0.16 et 0.08 par des constantes passer ou definies ailleurs
                                                 # c'est sont des vectors de projection isometrique d'un block
@@ -352,19 +357,20 @@ class WorldService:
                                                     "y": k,
                                                     "z": y_final,
                                                     "block": depth_block.name(),
-                                                    "biome": biome.name() if biome else "unknown",
-                                                    "is_surface": (depth_y == y)
+                                                    "properties": {str(key): str(value) for key, value in depth_block.properties.items()},
+                                                    "biome": biome.name() if biome else "unknown"
                                                 })
                                         except:
                                             continue
                                     break
                             except:
                                 continue
-
+                
+                # no need for heightmap
                 return ChunkDataResponse(
                     chunk_x=chunk_x,
                     chunk_z=chunk_z,
-                    heightmap=heightmap,
+                    heightmap=None,
                     surface_blocks=isometric_blocks,
                     sections=None,
                     palette=None
