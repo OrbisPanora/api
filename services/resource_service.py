@@ -47,15 +47,16 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
         try:
             model = None
             for state, props in blockstate_data["variants"].items():
-                attributes = dict(part.split("=") for part in state.split(","))
-                if all(k in properties and properties[k] == v for k, v in attributes.items()):
-                    if isinstance(blockstate_data['variants'][state], list):
-                        lenght_variants = len(blockstate_data["variants"][state])
-                        nb = random.randint(0,lenght_variants-1)
-                        model = blockstate_data["variants"][state][nb]["model"]
-                    else:
-                        model = props["model"]
-                    break
+                if state != "":
+                    attributes = dict(part.split("=") for part in state.split(","))
+                    if all(k in properties and properties[k] == v for k, v in attributes.items()):
+                        if isinstance(blockstate_data['variants'][state], list):
+                            lenght_variants = len(blockstate_data["variants"][state])
+                            nb = random.randint(0,lenght_variants-1)
+                            model = blockstate_data["variants"][state][nb]["model"]
+                        else:
+                            model = props["model"]
+                        break
             if model == None:
                 firstKey = next(iter(blockstate_data['variants']))
                 model = blockstate_data["variants"][firstKey]["model"]
@@ -121,49 +122,92 @@ def get_biomes_values(biome: str) -> tuple[float,float]:
     return (downfall, temperature)
 
 def _get_texture_isometric(model_data: dict):
+    # Get the 'textures' dictionary, defaulting to an empty dict if not present.
+    textures_source = model_data.get("textures", {})
     texture = {}
-    texture_top_iso = None
-    texture_left_iso = None
+    
+    # Initialize isometric texture paths.
+    # Set to None if the face should be masked/hidden.
+    iso_top_path = None
+    iso_side_path = None
 
-    if "top" in model_data["textures"]:
-        texture_top_iso = model_data["textures"]["top"]
-    elif "end" in model_data["textures"]:
-        texture_top_iso = model_data["textures"]["end"]
-    elif "all" in model_data["textures"]:
-        texture_top_iso = model_data["textures"]["all"]
-    elif "texture" in model_data["textures"]:
-        texture_top_iso = model_data["textures"]["texture"]
-    elif "round" in model_data["textures"]:  
-        texture_top_iso = model_data["textures"]["round"]
-    elif model_data["textures"]:
-        first_key = next(iter(model_data["textures"]))
-        texture_top_iso = model_data["textures"][first_key]
-
-
+    # --- STEP 1: Handle special (non-cubic) cases with masking ---
+    # These blocks require either the top or the side face to be hidden.
+    
+    if "cross" in textures_source:
+        # E.g., Flowers, Grass. Only render the sides (vertical plane).
+        iso_side_path = textures_source["cross"]
+        # iso_top_path remains None (masked)
+    
+    elif "rail" in textures_source:
+        # E.g., Rail. Only render the top.
+        iso_top_path = textures_source["rail"]
+        # iso_side_path remains None (masked)
         
-    if "side" in model_data["textures"]:
-        texture_left_iso = model_data["textures"]["side"]
-    elif "all" in model_data["textures"]:
-        texture_left_iso = model_data["textures"]["all"]
-    elif "texture" in model_data["textures"]:
-        texture_left_iso = model_data["textures"]["texture"]
-    elif "bars" in model_data["textures"]: 
-        texture_left_iso = model_data["textures"]["bars"]
-    else:
-        texture_left_iso = texture_top_iso
+    elif "pane" in textures_source or "bars" in textures_source:
+        # E.g., Glass panes, Iron bars. Only render the sides (the post/bar texture).
+        if "pane" in textures_source:
+            iso_side_path = textures_source["pane"]
+        elif "bars" in textures_source:
+            iso_side_path = textures_source["bars"]
+        # iso_top_path remains None (masked)
+
+    # --- STEP 2: Handle cubic and composite blocks (full cube rendering) ---
+    # If paths are still None, it's a cube-type block (or slab, stairs, etc.).
+    if iso_top_path is None and iso_side_path is None:
+        
+        # A. Determine the Isometric TOP face (Priority: top > end > all > texture)
+        if "top" in textures_source:
+            iso_top_path = textures_source["top"]
+        elif "end" in textures_source:  # Log/Pillar type
+            iso_top_path = textures_source["end"]
+        elif "all" in textures_source:
+            iso_top_path = textures_source["all"]
+        elif "texture" in textures_source:  # Simple generic (Button)
+            iso_top_path = textures_source["texture"]
+        elif "round" in textures_source: # Grindstone
+            iso_top_path = textures_source["round"]
+        elif textures_source:
+            # General fallback if 'top' key is missing, use the first texture found
+            iso_top_path = next(iter(textures_source.values()))
 
 
-    if texture_top_iso:
-        texture_top_name = texture_top_iso.split("/")[-1]
+        # B. Determine the Isometric SIDE face (Priority: side > all > texture)
+        if "side" in textures_source:
+            iso_side_path = textures_source["side"]
+        elif "all" in textures_source:  # Uniform
+            iso_side_path = textures_source["all"]
+        elif "texture" in textures_source:  # Simple generic
+            iso_side_path = textures_source["texture"]
+        elif "pattern" in textures_source: # Glazed Terracotta
+            iso_side_path = textures_source["pattern"]
+
+        # C. Fallback: If no side texture is found, use the top texture (e.g., "top" only blocks)
+        if iso_side_path is None:
+            iso_side_path = iso_top_path
+        
+        # D. Final Fallback (if top wasn't defined but side was)
+        if iso_top_path is None and iso_side_path is not None:
+             iso_top_path = iso_side_path
+
+
+    # --- STEP 3: Apply final format and handle masking (None) ---
+    
+    # Isometric TOP face
+    if iso_top_path:
+        texture_top_name = iso_top_path.split("/")[-1]
         texture["top"] = f"{texture_top_name}_top.webp"
     else:
-        texture["top"] = "default_top.webp"
+        # If path is None, the face is masked/should not be rendered.
+        texture["top"] = None 
 
-    if texture_left_iso:
-        texture_left_name = texture_left_iso.split("/")[-1]
+    # Isometric SIDE/LEFT face
+    if iso_side_path:
+        texture_left_name = iso_side_path.split("/")[-1]
         texture["left"] = f"{texture_left_name}_left.webp"
     else:
-        texture["left"] = "default_left.webp"
+        # If path is None, the face is masked/should not be rendered.
+        texture["left"] = None 
 
     return texture
 
