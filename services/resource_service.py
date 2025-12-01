@@ -43,18 +43,20 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
 
     if properties != {}:
         try:
-            firstKey = next(iter(blockstate_data['variants']))
-            if isinstance(blockstate_data['variants'][firstKey], list):
-                lenght_variants = len(blockstate_data["variants"][firstKey])
-                nb = random.randint(0,lenght_variants)
-                model = blockstate_data["variants"][firstKey][nb]["model"]
-            else:
-                for state, props in blockstate_data["variants"].items():
-                    attributes = dict(part.split("=") for part in state.split(","))
-
-                    if all(k in properties and properties[k] == v for k, v in attributes.items()):
+            model = None
+            for state, props in blockstate_data["variants"].items():
+                attributes = dict(part.split("=") for part in state.split(","))
+                if all(k in properties and properties[k] == v for k, v in attributes.items()):
+                    if isinstance(blockstate_data['variants'][state], list):
+                        lenght_variants = len(blockstate_data["variants"][state])
+                        nb = random.randint(0,lenght_variants-1)
+                        model = blockstate_data["variants"][state][nb]["model"]
+                    else:
                         model = props["model"]
-                        break
+                    break
+            if model == None:
+                firstKey = next(iter(blockstate_data['variants']))
+                model = blockstate_data["variants"][firstKey]["model"]
         except:
             raise InvalidBlockProperties("Properties are undefined but must be defined")
     else:
@@ -62,10 +64,10 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
             firstKey = next(iter(blockstate_data['variants']))
             if isinstance(blockstate_data['variants'][firstKey], list):
                 lenght_variants = len(blockstate_data["variants"][firstKey])
-                nb = random.randint(0,lenght_variants)
+                nb = random.randint(0,lenght_variants-1)
                 model = blockstate_data["variants"][firstKey][nb]["model"]
             else:
-                model = blockstate_data["variants"][""]["model"]
+                model = blockstate_data["variants"][firstKey]["model"]
         except:
             raise InvalidBlockProperties("Properties are defined but must be empty")
             
@@ -167,6 +169,7 @@ def get_colors(id: str, namespace: str, biome: str) -> str:
 
     with open(color_json_path, 'r') as f:
         colors_data = json.load(f)
+
     if fullname in colors_data.keys():
         type = colors_data[fullname]
         downfall, temperature = get_biomes_values(biome)
