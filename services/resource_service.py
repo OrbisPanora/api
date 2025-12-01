@@ -4,6 +4,7 @@ from utils.errors import InvalidBlockProperties
 from models.responses import BlockJsonDataResponse
 import logging
 import random
+from PIL import Image
 
 LOGGER = logging.getLogger(__file__)
 
@@ -12,8 +13,12 @@ def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}"
     blockstate_data = _get_blockstate_data(id)
     model_data = _get_block_data(blockstate_data, json.loads(properties))
 
-    texture = _get_texture_isometric(model_data, biome)
-
+    texture = _get_texture_isometric(model_data)
+    if check_tintindex(model_data):
+        if biome == "biome":
+            raise Exception()
+        color = get_colors(id, namespace, biome)
+        texture["color"] = color
     json_data = {
         "block_name": id,
         "textures": texture
@@ -38,20 +43,27 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
 
     if properties != {}:
         try:
-            for state, props in blockstate_data["variants"].items():
-                attributes = dict(part.split("=") for part in state.split(","))
+            firstKey = next(iter(blockstate_data['variants']))
+            if isinstance(blockstate_data['variants'][firstKey], list):
+                lenght_variants = len(blockstate_data["variants"][firstKey])
+                nb = random.randint(0,lenght_variants)
+                model = blockstate_data["variants"][firstKey][nb]["model"]
+            else:
+                for state, props in blockstate_data["variants"].items():
+                    attributes = dict(part.split("=") for part in state.split(","))
 
-                if all(k in properties and properties[k] == v for k, v in attributes.items()):
-                    model = props["model"]
-                    break
+                    if all(k in properties and properties[k] == v for k, v in attributes.items()):
+                        model = props["model"]
+                        break
         except:
             raise InvalidBlockProperties("Properties are undefined but must be defined")
     else:
         try:
-            if isinstance(blockstate_data["variants"][""], list):
-                lenght_variants = len(blockstate_data["variants"][""])
+            firstKey = next(iter(blockstate_data['variants']))
+            if isinstance(blockstate_data['variants'][firstKey], list):
+                lenght_variants = len(blockstate_data["variants"][firstKey])
                 nb = random.randint(0,lenght_variants)
-                model = blockstate_data["variants"][""][nb]["model"]
+                model = blockstate_data["variants"][firstKey][nb]["model"]
             else:
                 model = blockstate_data["variants"][""]["model"]
         except:
@@ -66,7 +78,10 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
         model_data = json.load(f)
     return model_data
 
-def check_parent_tintindex(model_data: dict) -> bool:
+def check_tintindex(model_data: dict) -> bool:
+    if has_tintindex(model_data):
+        return True
+
     blocks_path = f"resources/json/blocks"
     parent_name = model_data["parent"].split("/")[-1] +'.json'
     filepath = os.path.join(blocks_path, parent_name)
@@ -74,10 +89,15 @@ def check_parent_tintindex(model_data: dict) -> bool:
     with open(filepath, 'r') as f:
         parent_data= json.load(f)
 
-    LOGGER.debug(parent_data)
-    if "elements" in parent_data:
-        if ("tintindex" in parent_data["elements"][0]["faces"][face] for face in parent_data["elements"][0]["faces"]):
-            return True
+    return has_tintindex(parent_data)
+
+def has_tintindex(data: dict) -> bool:
+    if "elements" in data:
+        for element in data["elements"]:
+            if "faces" in element:
+                for face in element["faces"]:
+                    if "tintindex" in element["faces"][face]:
+                        return True
     return False
 
 def get_biomes_values(biome: str) -> tuple[float,float]:
@@ -94,7 +114,7 @@ def get_biomes_values(biome: str) -> tuple[float,float]:
     
     return (downfall, temperature)
 
-def _get_texture_isometric(model_data: dict, biome: str):
+def _get_texture_isometric(model_data: dict):
     texture = {}
     texture_top_iso = None
     texture_left_iso = None
@@ -139,11 +159,33 @@ def _get_texture_isometric(model_data: dict, biome: str):
     else:
         texture["left"] = "default_left.webp"
 
-    if check_parent_tintindex(model_data):
-        if biome == "biome":
-            raise Exception()
-        color_data = get_biomes_values(biome)
-        texture["downfall"] = color_data[0]
-        texture["temperature"] = color_data[1]
-
     return texture
+
+def get_colors(id: str, namespace: str, biome: str) -> str:
+    color_json_path = f"resources/json/colors/biome_tint_map.json"
+    fullname = namespace + ":" + id
+
+    with open(color_json_path, 'r') as f:
+        colors_data = json.load(f)
+    if fullname in colors_data.keys():
+        type = colors_data[fullname]
+        downfall, temperature = get_biomes_values(biome)
+
+        if type == 'grass':
+            downfall_effectiveness = downfall * temperature
+            img_path = f"resources/images/colors/grass.png"
+        else:
+            downfall_effectiveness = downfall
+            img_path = f"resources/images/colors/foliage.png"
+
+        img = Image.open(img_path)
+        x = int((1 - temperature) * 255)
+        y = int((1 - downfall_effectiveness) * 255)
+
+        x = max(0, min(255, x))
+        y = max(0, min(255, y))
+
+        r, g, b = img.getpixel((x, y))
+        hex = "#{:02X}{:02X}{:02X}".format(r, g, b)
+        return hex
+    

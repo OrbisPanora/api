@@ -1,0 +1,54 @@
+{
+  "minecraft:grass_block": "grass",
+  "minecraft:grass": "grass",
+  "minecraft:tall_grass": "grass",
+  "minecraft:short_grass": "grass",
+
+  "minecraft:sugar_cane": "grass",
+  "minecraft:bamboo": "grass",
+  "minecraft:bamboo_sapling": "grass",
+
+  "minecraft:melon_stem": "grass",
+  "minecraft:pumpkin_stem": "grass",
+  "minecraft:attached_melon_stem": "grass",
+  "minecraft:attached_pumpkin_stem": "grass",
+
+  "minecraft:seagrass": "grass",
+  "minecraft:tall_seagrass": "grass",
+  "minecraft:kelp": "grass",
+  "minecraft:kelp_plant": "grass",
+
+  "minecraft:big_dripleaf": "grass",
+  "minecraft:big_dripleaf_stem": "grass",
+  "minecraft:small_dripleaf": "grass",
+
+  "minecraft:vine": "grass",
+  "minecraft:weeping_vines": "grass",
+  "minecraft:weeping_vines_plant": "grass",
+  "minecraft:twisting_vines": "grass",
+  "minecraft:twisting_vines_plant": "grass",
+
+  "minecraft:mangrove_roots": "grass",
+
+  "minecraft:oak_leaves": "foliage",
+  "minecraft:spruce_leaves": "foliage",
+  "minecraft:birch_leaves": "foliage",
+  "minecraft:jungle_leaves": "foliage",
+  "minecraft:acacia_leaves": "foliage",
+  "minecraft:dark_oak_leaves": "foliage",
+  "minecraft:mangrove_leaves": "foliage",
+  "minecraft:cherry_leaves": "foliage",
+
+  "minecraft:azalea": "foliage",
+  "minecraft:flowering_azalea": "foliage",
+  "minecraft:azalea_leaves": "foliage",
+  "minecraft:flowering_azalea_leaves": "foliage",
+
+  "minecraft:fern": "foliage",
+  "minecraft:large_fern": "foliage",
+
+  "minecraft:lily_pad": "foliage",
+
+  "minecraft:cave_vines": "foliage",
+  "minecraft:cave_vines_plant": "foliage"
+}
