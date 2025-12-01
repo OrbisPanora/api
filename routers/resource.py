@@ -58,6 +58,7 @@ async def get_json(
     biome: str = Query(default="biome")
 ) -> APIResponse[BlockJsonDataResponse]:
     try:
+        print("TEST")
         json_data = get_json_block(id=id, namespace=namespace, properties=properties, biome=biome)
 
         if json_data is None:
