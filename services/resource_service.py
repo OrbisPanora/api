@@ -47,15 +47,17 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
         try:
             model = None
             for state, props in blockstate_data["variants"].items():
-                attributes = dict(part.split("=") for part in state.split(","))
-                if all(k in properties and properties[k] == v for k, v in attributes.items()):
-                    if isinstance(blockstate_data['variants'][state], list):
-                        lenght_variants = len(blockstate_data["variants"][state])
-                        nb = random.randint(0,lenght_variants-1)
-                        model = blockstate_data["variants"][state][nb]["model"]
-                    else:
-                        model = props["model"]
-                    break
+                if state != "":
+                    attributes = dict(part.split("=") for part in state.split(","))
+                    if all(k in properties and properties[k] == v for k, v in attributes.items()):
+                        if isinstance(blockstate_data['variants'][state], list):
+                            lenght_variants = len(blockstate_data["variants"][state])
+                            nb = random.randint(0,lenght_variants-1)
+                            model = blockstate_data["variants"][state][nb]["model"]
+                        else:
+                            model = props["model"]
+                        break
+
             if model == None:
                 firstKey = next(iter(blockstate_data['variants']))
                 model = blockstate_data["variants"][firstKey]["model"]
