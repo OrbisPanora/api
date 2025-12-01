@@ -11,7 +11,9 @@ LOGGER = logging.getLogger(__file__)
 def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}", biome: str = "biome") -> BlockJsonDataResponse:
 
     blockstate_data = _get_blockstate_data(id)
+    print("TEST 0")
     model_data = _get_block_data(blockstate_data, json.loads(properties))
+    print("TEST 1")
 
     texture = _get_texture_isometric(model_data)
     if check_tintindex(model_data):
@@ -44,9 +46,10 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
     if properties != {}:
         try:
             firstKey = next(iter(blockstate_data['variants']))
+            model = blockstate_data["variants"][firstKey]["model"]
             if isinstance(blockstate_data['variants'][firstKey], list):
                 lenght_variants = len(blockstate_data["variants"][firstKey])
-                nb = random.randint(0,lenght_variants)
+                nb = random.randint(0,lenght_variants-1)
                 model = blockstate_data["variants"][firstKey][nb]["model"]
             else:
                 for state, props in blockstate_data["variants"].items():
@@ -62,10 +65,10 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
             firstKey = next(iter(blockstate_data['variants']))
             if isinstance(blockstate_data['variants'][firstKey], list):
                 lenght_variants = len(blockstate_data["variants"][firstKey])
-                nb = random.randint(0,lenght_variants)
+                nb = random.randint(0,lenght_variants-1)
                 model = blockstate_data["variants"][firstKey][nb]["model"]
             else:
-                model = blockstate_data["variants"][""]["model"]
+                model = blockstate_data["variants"][firstKey]["model"]
         except:
             raise InvalidBlockProperties("Properties are defined but must be empty")
             
