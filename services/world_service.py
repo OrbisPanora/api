@@ -293,85 +293,192 @@ class WorldService:
             # changais par simoni
             # pour afficher un chunk a la fois
             elif mode == "isometric":
-                # Optimized for isometric rendering - only visible surface blocks
-                isometric_blocks = []
-                #heightmap = [[0 for _ in range(16)] for _ in range(16)] # inutile pour moi
+                isometric_blocks = {}
                 min_value = 320
+                max_value = -64
+
                 AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
-                AIR_LEAVES = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:acacia_leaves', 
+                INVISIBLE = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:acacia_leaves', 
                               'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
                               'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
                               'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-                              'minecraft:oak_leaves', 'minecraft:spruce_leaves']
+                              'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
+                              'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
+                              'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
                 # TODO: ajouter vine, staires, grass, flowers, etc
+
                 global_biome_x = chunk_x * 16
                 global_biome_z = chunk_z * 16
                 global_chunk_x = abs(global_biome_x)
                 global_chunk_z = abs(global_biome_z)
 
+                Matrix1D = []
+                Matrix2D = []
+                Matrix3D = []
                 
-                # First pass: finde lowest surface block
+                # First pass: finde lowest surface block89- 77
                 for z in range(16):
                     for x in range(16):
                         # Find the highest solid block (surface)
                         for y in range(320, -64, -1):
                             try:
                                 block = chunk.get_block(x, y, z)
-                                if block and block.name() not in AIR:
-                                    # heightmap[z][x] = y
-                                    if y < min_value:
-                                        min_value = y
-                                    break
+                                if block:
+
+                                    if block.name() not in INVISIBLE:
+                                        # heightmap[z][x] = y
+                                        if y < min_value:
+                                            min_value = y
+                                    if block.name() not in AIR:
+                                        if y> max_value:
+                                            max_value = y
+                                        break
                             except:
                                 continue
                 
-                # second pass: select all blocks from max height and lowest surface
+                print("min", min_value, "max", max_value)
+
                 for z in range(16):
                     for x in range(16):
-                        for y in range(320, -64, -1):
+                        for y in range(max_value, min_value, -1):
                             try:
+                                # trouver un meilleur facon pour eviter de appeller block 2e fois
                                 block = chunk.get_block(x, y, z)
-                                if block and block.name() not in AIR:
-                                    for depth_y in range(y, min_value, -1):
-                                        try:
-                                            depth_block = chunk.get_block(x, depth_y, z)
-                                            if depth_block and depth_block.name() not in AIR: # peut etre controle de tro
-                                                # Get biome at this position
-                                                global_x = global_biome_x + x
-                                                global_z = global_biome_z + z
-                                                biome = self.world.get_biome(global_x, depth_y, global_z)
-
-                                                i=abs(abs(global_x) - global_chunk_x)
-                                                j=abs(abs(global_z) - global_chunk_z)
-                                                k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
-
-                                                # remplacer 0.16 et 0.08 par des constantes passer ou definies ailleurs
-                                                # c'est sont des vectors de projection isometrique d'un block
-                                                x_final = 0.16 * (i - j)
-                                                y_final = -0.08*(i+j)+0.08*16 + 0.16*k
-                                                x_final = round(x_final * 100) / 100
-                                                y_final = round(y_final * 100) / 100
-
-                                                isometric_blocks.append({
-                                                    "x": x_final,
-                                                    "y": k,
-                                                    "z": y_final,
-                                                    "block": depth_block.name(),
-                                                    "properties": {str(key): str(value) for key, value in depth_block.properties.items()},
-                                                    "biome": biome.name() if biome else "unknown"
-                                                })
-                                        except:
-                                            continue
-                                    break
                             except:
+                                Matrix1D.append(0)
                                 continue
+
+                            if block and block.name() not in INVISIBLE:
+                                Matrix1D.append(block)
+                            else:
+                                Matrix1D.append(0)
+
+                        Matrix2D.append(Matrix1D)
+                        Matrix1D=[]
+                    Matrix3D.append(Matrix2D)
+                    Matrix2D=[]
+
+                print("la famu matrix",len(Matrix3D))
+                print("la famu matrix", len(Matrix3D[0]))
+                print("la famu matrix", len(Matrix3D[0][0]))
+
+                for z in range(len(Matrix3D)):
+                    for x in range(len(Matrix3D[z])):
+                        for y in range(len(Matrix3D[z][x])):
+                            if Matrix3D[z][x][y] == 0 :
+                                # air
+                                continue
+                            else:
+                                # block a recuperer
+                                #side 0 -> left; 1 -> right; 2 -> top;
+                                side = 0
+                                # left ya aire
+                                if z == (len(Matrix3D)-1):
+                                    side = side + 100
+                                elif Matrix3D[z+1][x][y]== 0:
+                                    side = side + 100
+
+                                # right ya aire
+                                if x == (len(Matrix3D[z])-1):
+                                    side = side + 10
+                                elif Matrix3D[z][x+1][y] == 0:
+                                    side = side + 10
+
+                                # top ya aire 
+                                if y == (len(Matrix3D[z][x]) - 1):
+                                    side = side + 1
+                                elif Matrix3D[z][x][y+1] == 0:
+                                    side = side + 1
+
+                                block = Matrix3D[z][x][y]
+
+                                #print(block)
+
+                                
+
+                                global_x = global_biome_x + x
+                                global_z = global_biome_z + z
+                                biome = self.world.get_biome(global_x, y, global_z)
+                                if (biome == None):
+                                    print("ERREURINUUU")
+
+                                i=abs(abs(global_x) - global_chunk_x)
+                                j=abs(abs(global_z) - global_chunk_z)
+                                k=abs(abs(y) - abs(min_value)) # height coeficient for render order
+
+                                x_final = 0.16 * (i - j)
+                                y_final = -0.08*(i+j)+0.08*16 + 0.16*k
+                                x_final = round(x_final * 100) / 100
+                                y_final = round(y_final * 100) / 100
+                                
+                                biome_name = biome.name().split(":")[1]
+                                block_name = block.name().split(":")[1]
+                                properties = {str(key): str(value) for key, value in block.properties.items()}
+                                key_v = (biome_name, tuple(properties.items()), 111)
+
+                                if block_name not in isometric_blocks:
+                                    isometric_blocks[block_name] = {}
+
+                                if key_v not in isometric_blocks[block_name]:
+                                    isometric_blocks[block_name][key_v] = {
+                                        "biome": biome_name,
+                                        "properties": properties,
+                                        "side": side,
+                                        "coordinates": []
+                                    }
+
+                                isometric_blocks[block_name][key_v]["coordinates"].append((x_final, k, y_final))
+
+                for block_name in isometric_blocks:
+                    isometric_blocks[block_name] = list(isometric_blocks[block_name].values())
+
+                # second pass: select all blocks from max height and lowest surface
+                # for z in range(16):
+                #     for x in range(16):
+                #         for y in range(320, -64, -1):
+                #             try:
+                #                 #block = chunk.get_block(x, y, z)
+                #                 if block and block.name() not in AIR:
+                #                     for depth_y in range(y, min_value, -1): # peut eutre meilleur en performence
+                #                         try:
+                #                             depth_block = chunk.get_block(x, depth_y, z)
+                #                             if depth_block and depth_block.name() not in AIR: # peut etre controle de tro
+                #                                 # Get biome at this position
+                #                                 global_x = global_biome_x + x
+                #                                 global_z = global_biome_z + z
+                #                                 biome = self.world.get_biome(global_x, depth_y, global_z)
+
+                #                                 i=abs(abs(global_x) - global_chunk_x)
+                #                                 j=abs(abs(global_z) - global_chunk_z)
+                #                                 k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
+
+                #                                 # remplacer 0.16 et 0.08 par des constantes passer ou definies ailleurs
+                #                                 # c'est sont des vectors de projection isometrique d'un block
+                #                                 x_final = 0.16 * (i - j)
+                #                                 y_final = -0.08*(i+j)+0.08*16 + 0.16*k
+                #                                 x_final = round(x_final * 100) / 100
+                #                                 y_final = round(y_final * 100) / 100
+
+                #                                 isometric_blocks.append({
+                #                                     "x": x_final,
+                #                                     "y": k,
+                #                                     "z": y_final,
+                #                                     "block": depth_block.name(),
+                #                                     "properties": {str(key): str(value) for key, value in depth_block.properties.items()},
+                #                                     "biome": biome.name() if biome else "unknown"
+                #                                 })
+                #                         except:
+                #                             continue
+                #                     break
+                #             except:
+                #                 continue
                 
                 # no need for heightmap
                 return ChunkDataResponse(
                     chunk_x=chunk_x,
                     chunk_z=chunk_z,
                     heightmap=None,
-                    surface_blocks=isometric_blocks,
+                    surface_blocks=[isometric_blocks],
                     sections=None,
                     palette=None
                 )
