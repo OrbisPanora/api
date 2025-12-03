@@ -365,11 +365,9 @@ class WorldService:
                 for z in range(len(Matrix3D)):
                     for x in range(len(Matrix3D[z])):
                         for y in range(len(Matrix3D[z][x])):
-                            if Matrix3D[z][x][y] == 0 :
-                                # air
-                                continue
-                            else:
+                            if Matrix3D[z][x][y] != 0 :
                                 # block a recuperer
+                                #for y_depth in range(y, min_value, -1):
                                 #side 0 -> left; 1 -> right; 2 -> top;
                                 side = 0
                                 # left ya aire
@@ -392,19 +390,13 @@ class WorldService:
 
                                 block = Matrix3D[z][x][y]
 
-                                #print(block)
-
-                                
-
                                 global_x = global_biome_x + x
                                 global_z = global_biome_z + z
                                 biome = self.world.get_biome(global_x, y, global_z)
-                                if (biome == None):
-                                    print("ERREURINUUU")
 
                                 i=abs(abs(global_x) - global_chunk_x)
                                 j=abs(abs(global_z) - global_chunk_z)
-                                k=abs(abs(y) - abs(min_value)) # height coeficient for render order
+                                k=y#abs(abs(y) - abs(min_value)) # height coeficient for render order
 
                                 x_final = 0.16 * (i - j)
                                 y_final = -0.08*(i+j)+0.08*16 + 0.16*k
@@ -414,7 +406,7 @@ class WorldService:
                                 biome_name = biome.name().split(":")[1]
                                 block_name = block.name().split(":")[1]
                                 properties = {str(key): str(value) for key, value in block.properties.items()}
-                                key_v = (biome_name, tuple(properties.items()), 111)
+                                key_v = (biome_name, tuple(properties.items()))
 
                                 if block_name not in isometric_blocks:
                                     isometric_blocks[block_name] = {}
@@ -428,6 +420,8 @@ class WorldService:
                                     }
 
                                 isometric_blocks[block_name][key_v]["coordinates"].append((x_final, k, y_final))
+
+                                #break
 
                 for block_name in isometric_blocks:
                     isometric_blocks[block_name] = list(isometric_blocks[block_name].values())
