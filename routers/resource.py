@@ -11,8 +11,8 @@ from models.responses import APIResponse, BlockJsonDataResponse
 from utils.errors import InvalidBlockProperties
 import logging
 from services.resource_service import get_json_block
-from pydantic import BaseModel
-from typing import List, Dict
+from pydantic import BaseModel, RootModel, Field
+from typing import List, Dict, Union, Optional
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,29 +85,58 @@ async def get_json(
         )
 
 class BlockItem(BaseModel):
-    id: str
-    namespace: str
     biome: str
-    properties: dict = {}
+    properties: Dict[str, str] = Field(default_factory=dict)
+    side: int
+    coordinates: Optional[List[List[Union[int, float]]]] = None
+    namespace: str = "minecraft"
+
+# This represents the dictionary where keys are block names
+class BlockMap(RootModel):
+    root: Dict[str, List[BlockItem]]
 
 class PaletteRequest(BaseModel):
-    blocks: Dict[str, BlockItem]
+    blocks: List[BlockMap]  # List containing one BlockMap
 
 @router.post("/palette")
 def get_palette(request: PaletteRequest) -> APIResponse:
     palette = {}
 
-    for name, data in request.blocks.items():
-        json_data = get_json_block(
-            id=data.id,
-            namespace=data.namespace,
-            properties=data.properties,
-            biome=data.biome
-        )
-        side = name.split("_")[-1]
-        image = {}
-        image[side] = json_data.textures[side]
-        palette[name] = image
+    # Access the root dictionary from the first BlockMap in the list
+    blocks_dict = request.blocks[0].root
+    
+    for block_name, block_variants in blocks_dict.items():
+        # Initialize list for this block if not exists
+        if block_name not in palette:
+            palette[block_name] = []
+        
+        for variant in block_variants:
+            try:
+                json_data = get_json_block(
+                    id=block_name,
+                    namespace=variant.namespace,
+                    properties=variant.properties,
+                    biome=variant.biome
+                )
+                
+                # Add this variant's data
+                palette[block_name].append({
+                    "biome": variant.biome,
+                    "properties": variant.properties,
+                    "side": variant.side,
+                    "coordinates": variant.coordinates,
+                    "textures": json_data.textures
+                })
+                
+            except FileNotFoundError:
+                LOGGER.warning(f"Block {block_name} not found")
+                continue
+            except InvalidBlockProperties as e:
+                LOGGER.warning(f"Invalid properties for {block_name}: {e}")
+                continue
+            except Exception as e:
+                LOGGER.error(f"Unexpected error for {block_name}: {e}")
+                continue
 
     return APIResponse(
         status="success",

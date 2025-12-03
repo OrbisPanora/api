@@ -81,6 +81,7 @@ def get_variants_block_data(blockstate_data: dict, properties: dict):
     return model
 
 def get_multiparts_block_data(blockstate_data: dict, properties: dict):
+    
     return
 
 def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
