@@ -11,6 +11,8 @@ from models.responses import APIResponse, BlockJsonDataResponse
 from utils.errors import InvalidBlockProperties
 import logging
 from services.resource_service import get_json_block
+from pydantic import BaseModel
+from typing import List, Dict
 
 LOGGER = logging.getLogger(__name__)
 
@@ -81,3 +83,34 @@ async def get_json(
             status_code=404,
             detail = f"Block {id},  unknown or not found"
         )
+
+class BlockItem(BaseModel):
+    id: str
+    namespace: str
+    biome: str
+    properties: dict = {}
+
+class PaletteRequest(BaseModel):
+    blocks: Dict[str, BlockItem]
+
+@router.post("/palette")
+def get_palette(request: PaletteRequest) -> APIResponse:
+    palette = {}
+
+    for name, data in request.blocks.items():
+        json_data = get_json_block(
+            id=data.id,
+            namespace=data.namespace,
+            properties=data.properties,
+            biome=data.biome
+        )
+        side = name.split("_")[-1]
+        image = {}
+        image[side] = json_data.textures[side]
+        palette[name] = image
+
+    return APIResponse(
+        status="success",
+        data=palette,
+        timestamp=datetime.now()
+    )

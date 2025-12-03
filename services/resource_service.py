@@ -5,6 +5,8 @@ from models.responses import BlockJsonDataResponse
 import logging
 import random
 from PIL import Image
+import base64
+from io import BytesIO
 
 LOGGER = logging.getLogger(__file__)
 
@@ -12,7 +14,10 @@ def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}"
 
     blockstate_data = _get_blockstate_data(id)
     print("TEST 0")
-    model_data = _get_block_data(blockstate_data, json.loads(properties))
+    if isinstance(properties, dict):
+        model_data = _get_block_data(blockstate_data, properties)
+    else:
+        model_data = _get_block_data(blockstate_data, json.loads(properties))
     print("TEST 1")
 
     texture = _get_texture_isometric(model_data)
@@ -40,9 +45,7 @@ def _get_blockstate_data(name: str) -> dict:
         blockstate_data = json.load(f)
     return blockstate_data
 
-def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
-    blocks_path = f"resources/json/blocks"
-
+def get_variants_block_data(blockstate_data: dict, properties: dict):
     if properties != {}:
         try:
             model = None
@@ -75,7 +78,19 @@ def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
                 model = blockstate_data["variants"][firstKey]["model"]
         except:
             raise InvalidBlockProperties("Properties are defined but must be empty")
-            
+    return model
+
+def get_multiparts_block_data(blockstate_data: dict, properties: dict):
+    return
+
+def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
+    blocks_path = f"resources/json/blocks"
+
+    if "variants" in blockstate_data:
+        model = get_variants_block_data(blockstate_data, properties)      
+    else:
+        model = get_multiparts_block_data(blockstate_data, properties)
+
     model_name = model.split("/")[-1]
     json_file = model_name + '.json'
 
@@ -120,6 +135,22 @@ def get_biomes_values(biome: str) -> tuple[float,float]:
     temperature = biome_data["temperature"]
     
     return (downfall, temperature)
+
+def image_to_base64(image_path: str) -> str:
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+def get_images(textures: dict):
+    images = {}
+    image_path = f"resources/images/"
+    for key, value in textures.items():
+        if value != None:
+            img_base64 = image_to_base64(image_path + value)
+            images[key] = img_base64
+        else:
+            images[key] = None
+
+    return images
 
 def _get_texture_isometric(model_data: dict):
     # Get the 'textures' dictionary, defaulting to an empty dict if not present.
@@ -209,7 +240,9 @@ def _get_texture_isometric(model_data: dict):
         # If path is None, the face is masked/should not be rendered.
         texture["left"] = None 
 
-    return texture
+    images = get_images(texture)
+
+    return images
 
 def get_colors(id: str, namespace: str, biome: str) -> str:
     color_json_path = f"resources/json/colors/biome_tint_map.json"
