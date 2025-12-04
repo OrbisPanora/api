@@ -166,15 +166,17 @@ class BlockJsonDataResponse(BaseModel):
     """ Json's block data response for isometric's request. """
 
     block_name: str = Field(..., description="Block's name")
-    textures: dict = Field(..., description="textures images for isometric's requests") 
+    resources: dict = Field(..., description="resources for isometric's requests") 
+    type: str = Field(..., description="variant's type or multipart's type") 
 
     class Config:
         json_schema_extra = {
             "example": {
                 "block_name": "diamond_block",
-                "textures": {
+                "resources": {
                     "top": "diamond_block_top.webp",
                     "left": "diamond_block_left.webp"
-                }
+                },
+                "type": "variants"
             }
         }
