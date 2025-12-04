@@ -7,30 +7,18 @@ import random
 from PIL import Image
 import base64
 from io import BytesIO
+from typing import List, Dict, Union, Optional
 
 LOGGER = logging.getLogger(__file__)
 
 def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}", biome: str = "biome") -> BlockJsonDataResponse:
 
     blockstate_data = _get_blockstate_data(id)
-    print("TEST 0")
     if isinstance(properties, dict):
-        model_data = _get_block_data(blockstate_data, properties)
+        model_data = _get_block_data(id=id, namespace=namespace, blockstate_data=blockstate_data, properties=properties, biome=biome)
     else:
-        model_data = _get_block_data(blockstate_data, json.loads(properties))
-    print("TEST 1")
-
-    texture = _get_texture_isometric(model_data)
-    if check_tintindex(model_data):
-        if biome == "biome":
-            raise Exception()
-        color = get_colors(id, namespace, biome)
-        texture["color"] = color
-    json_data = {
-        "block_name": id,
-        "textures": texture
-    }     
-    return BlockJsonDataResponse(**json_data)
+        model_data = _get_block_data(id=id, namespace=namespace, blockstate_data=blockstate_data, properties=json.loads(properties), biome=biome)
+    return BlockJsonDataResponse(**model_data)
 
 def _get_blockstate_data(name: str) -> dict:
     blockstates_path = f"resources/json/blockstates"
@@ -81,38 +69,111 @@ def get_variants_block_data(blockstate_data: dict, properties: dict):
     return model
 
 def get_multiparts_block_data(blockstate_data: dict, properties: dict):
-    
-    return
+    if properties == {}:
+        raise InvalidBlockProperties("Properties are undefined but must be defined")
+    try :
+        cores : List[str] = []
+        connexions: List[str] = []
+        overlays: List[str] = []
 
-def _get_block_data(blockstate_data: dict, properties: dict) -> dict:
+        data = blockstate_data['multipart']
+        print("===================start================")
+        #print(data)
+        for part in data:
+            apply = part['apply']['model'].split("/")[-1]
+            if 'when' not in part:
+                cores.append({'apply':apply})
+            elif all(k in properties and str(properties[k]) == v for k, v in part['when'].items()):
+                model = {
+                    'apply': apply,
+                    'when': {key: value for key, value in part['when'].items()}
+                }
+                print("part:", part['when'].keys(), " values:", part['when'].values())
+                if all(key in ['up', 'age'] for key in part['when'].keys()):
+                    cores.append(model)
+                elif all(key in ['north', 'south', 'east', 'west'] for key in part['when'].keys()):
+                    connexions.append(model)
+                # elif all(part['when'].keys() not in ['north', 'south', 'east', 'west'] and part['when'].values in ['true', 'false']):
+                #     cores.append(part)
+                else:
+                    overlays.append(model)
+        model = {
+            'cores': cores,
+            'connexions': connexions,
+            'overlays': overlays
+        }
+        print(model)
+    except:
+        raise Exception
+    return model
+
+def _get_block_data(blockstate_data: dict, properties: dict, id:str, namespace: str, biome: str) -> dict:
     blocks_path = f"resources/json/blocks"
 
     if "variants" in blockstate_data:
-        model = get_variants_block_data(blockstate_data, properties)      
+        model = get_variants_block_data(blockstate_data, properties)  
+        model_name = model.split("/")[-1]
+        json_file = model_name + '.json'
+
+        filepath = os.path.join(blocks_path, json_file)
+
+        with open(filepath, 'r') as f:
+            model_data = json.load(f)   
+
+        texture = _get_texture_isometric(model_data)
+        if check_tintindex(model_data):
+            if biome == "biome":
+                raise Exception()
+            color = get_colors(id, namespace, biome)
+            texture["color"] = color 
+        results = {
+            'block_name': id,
+            'resources': texture,
+            'type': 'variant'
+        }
     else:
-        model = get_multiparts_block_data(blockstate_data, properties)
+        results = {'block_name': id, 'resources': {'params': []}, 'type': 'multipart'}
+        models = get_multiparts_block_data(blockstate_data, properties)
+        for categorie in models.keys():
+            for model in models[categorie]:
+                model_name = model['apply']
+                json_file = model_name + '.json'
 
-    model_name = model.split("/")[-1]
-    json_file = model_name + '.json'
-
-    filepath = os.path.join(blocks_path, json_file)
-
-    with open(filepath, 'r') as f:
-        model_data = json.load(f)
-    return model_data
+                filepath = os.path.join(blocks_path, json_file)
+                
+                with open(filepath, 'r') as f:
+                    model_data = json.load(f)  
+                texture = _get_texture_isometric(model_data)
+                if check_tintindex(model_data):
+                    if biome == "biome":
+                        raise Exception()
+                    color = get_colors(id, namespace, biome)
+                    texture["color"] = color  
+                texture['categorie'] = categorie
+                if 'when' in model:
+                    texture['when'] = model['when']
+                else:
+                    texture['when'] = None
+                result = {
+                    'block_name': model_name,
+                    'textures': texture,
+                } 
+                results['resources']['params'].append(result)
+    return results
 
 def check_tintindex(model_data: dict) -> bool:
     if has_tintindex(model_data):
         return True
 
     blocks_path = f"resources/json/blocks"
-    parent_name = model_data["parent"].split("/")[-1] +'.json'
-    filepath = os.path.join(blocks_path, parent_name)
+    if 'parent' in model_data:
+        parent_name = model_data["parent"].split("/")[-1] +'.json'
+        filepath = os.path.join(blocks_path, parent_name)
 
-    with open(filepath, 'r') as f:
-        parent_data= json.load(f)
-
-    return has_tintindex(parent_data)
+        with open(filepath, 'r') as f:
+            parent_data= json.load(f)
+        return has_tintindex(parent_data)
+    return False
 
 def has_tintindex(data: dict) -> bool:
     if "elements" in data:

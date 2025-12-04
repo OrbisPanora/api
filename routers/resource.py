@@ -123,9 +123,8 @@ def get_palette(request: PaletteRequest) -> APIResponse:
                 palette[block_name].append({
                     "biome": variant.biome,
                     "properties": variant.properties,
-                    "side": variant.side,
-                    "coordinates": variant.coordinates,
-                    "textures": json_data.textures
+                    "resources": json_data.resources,
+                    "type": json_data.type
                 })
                 
             except FileNotFoundError:
