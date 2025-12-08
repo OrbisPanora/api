@@ -293,7 +293,7 @@ class WorldService:
             # changais par simoni
             # pour afficher un chunk a la fois
             elif mode == "isometric":
-                isometric_blocks = {}
+                isometric_blocks = []
                 min_value = 320
                 max_value = -64
 
@@ -335,11 +335,12 @@ class WorldService:
                             except:
                                 continue
                 
-                print("min", min_value, "max", max_value)
+                print("min", min_value, "max", max_value) ## est ce quil faut prendre max valeu ou pas ??
 
                 for z in range(16):
                     for x in range(16):
-                        for y in range(min_value, max_value, 1):
+                        for y in range(min_value, max_value+1, 1): # 77 ... 89
+                            # 89 ... 77 +1
                             try:
                                 # trouver un meilleur facon pour eviter de appeller block 2e fois
                                 block = chunk.get_block(x, y, z)
@@ -363,113 +364,98 @@ class WorldService:
                 # a mettre en place side
                 #print(Matrix3D)
                 side = 0
+                cpt = 0
 
                 for z in range(len(Matrix3D)):
                     for x in range(len(Matrix3D[z])):
-                        for y in range(max_value, min_value, -1): # 89 88 ... 78 77
-                            y_index = y - min_value - 1 # peut etre verifier si out of range
+                        for y in range(min_value, max_value, 1):
+                            y_index = y-min_value # peut etre verifier si out of range 77 -
+                            #print("test0", y_index)
                             block = Matrix3D[z][x][y_index]
+                            #print("test1", y_index)
                             if block != 0:
-                                for depth_y in range(y, min_value, -1): # 89 ... 77
-                                    y_index = depth_y - min_value - 1 # peut etre verifier si out of range
+                                for depth_y in range(y, max_value, 1): # 89 ... 77
+                                    # 
+                                    y_index = depth_y - min_value # peut etre verifier si out of range
+                                    #print("test10", y_index)
                                     block = Matrix3D[z][x][y_index]
+                                    #print("test20", y_index)
                                     if block != 0:
                                         global_x = global_biome_x + x
                                         global_z = global_biome_z + z
-                                        biome = self.world.get_biome(global_x, depth_y, global_z)
+                                        # biome = self.world.get_biome(global_x, depth_y, global_z)
 
                                         i=abs(abs(global_x) - global_chunk_x)
                                         j=abs(abs(global_z) - global_chunk_z)
                                         k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
 
-                                        x_final = 0.16 * (i - j)
-                                        y_final = -0.08*(i+j)+0.08*16 + 0.16*k
+                                        x_final = 16 * (i - j)
+                                        y_final = 8*(i+j) - 16*k
                                         x_final = round(x_final * 100) / 100
                                         y_final = round(y_final * 100) / 100
-                                        
-                                        biome_name = biome.name().split(":")[1]
+
+                                        #print("TEST")
                                         block_name = block.name().split(":")[1]
-                                        properties = {str(key): str(value) for key, value in block.properties.items()}
-                                        key_v = (biome_name, tuple(properties.items()))
-
-                                        if block_name not in isometric_blocks:
-                                            isometric_blocks[block_name] = {}
-
-                                        if key_v not in isometric_blocks[block_name]:
-                                            isometric_blocks[block_name][key_v] = {
-                                                "biome": biome_name,
-                                                "properties": properties,
-                                                "side": side,
-                                                "coordinates": []
-                                            }
-
-                                        isometric_blocks[block_name][key_v]["coordinates"].append((x_final, k, y_final))
+                                        isometric_blocks.append([block_name+".webp", x_final, y_final])
+                                        cpt +=1
                                 break
-                            ### fin
 
-                            # #for depth_y in range(y, min_value, -1):
-                            # block = Matrix3D[z][x][y]
-                            # if block != 0 :
-                                
-                                # block a recuperer
-                                #for y_depth in range(y, min_value, -1):
-                                #side 0 -> left; 1 -> right; 2 -> top;
-                                side = 0
-                                # left ya aire
-                                if z == (len(Matrix3D)-1):
-                                    side = side + 100
-                                elif Matrix3D[z+1][x][y]== 1:
-                                    side = side + 100
+                # for z in range(len(Matrix3D)):
+                #     for x in range(len(Matrix3D[z])):
+                #         for y in range(max_value, min_value, -1): # 89 88 ... 78 77
+                #             y_index = y - min_value # peut etre verifier si out of range
+                #             block = Matrix3D[z][x][y_index]
+                #             if block != 0:
+                #                 for depth_y in range(y, min_value, -1): # 89 ... 77
+                #                     y_index = depth_y - min_value # peut etre verifier si out of range
+                #                     block = Matrix3D[z][x][y_index]
+                #                     if block != 0:
+                #                         global_x = global_biome_x + x
+                #                         global_z = global_biome_z + z
+                #                         biome = self.world.get_biome(global_x, depth_y, global_z)
 
-                                # right ya aire
-                                if x == (len(Matrix3D[z])-1):
-                                    side = side + 10
-                                elif Matrix3D[z][x+1][y] == 1:
-                                    side = side + 10
+                #                         i=abs(abs(global_x) - global_chunk_x)
+                #                         j=abs(abs(global_z) - global_chunk_z)
+                #                         k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
 
-                                # top ya aire 
-                                if y == (len(Matrix3D[z][x]) - 1):
-                                    side = side + 1
-                                elif Matrix3D[z][x][y+1] == 1:
-                                    side = side + 1
+                #                         x_final = 16 * (i - j)
+                #                         y_final = 8*(i+j)+8*16 - 16*k
+                #                         x_final = round(x_final * 100) / 100
+                #                         y_final = round(y_final * 100) / 100
 
-                                
+                #                         #print("TEST")
+                #                         block_name = block.name().split(":")[1]
 
-                                global_x = global_biome_x + x
-                                global_z = global_biome_z + z
-                                biome = self.world.get_biome(global_x, y, global_z)
+                #                         isometric_blocks.append([block_name, x_final, y_final])
+                #                         cpt +=1
 
-                                i=abs(abs(global_x) - global_chunk_x)
-                                j=abs(abs(global_z) - global_chunk_z)
-                                k=y*0.32#abs(abs(y) - abs(min_value)) # height coeficient for render order
+                #                         #print("TEST2")
+                #                 break           
+                #                         # biome_name = biome.name().split(":")[1]
+                #                         # block_name = block.name().split(":")[1]
+                #                         # properties = {str(key): str(value) for key, value in block.properties.items()}
+                #                         # key_v = (biome_name, tuple(properties.items()))
 
-                                x_final = 0.16 * (i - j)
-                                y_final = -0.08*(i+j)+0.08*16 + 0.16*k
-                                x_final = round(x_final * 100) / 100
-                                y_final = round(y_final * 100) / 100
-                                
-                                biome_name = biome.name().split(":")[1]
-                                block_name = block.name().split(":")[1]
-                                properties = {str(key): str(value) for key, value in block.properties.items()}
-                                key_v = (biome_name, tuple(properties.items()))
+                                        
 
-                                if block_name not in isometric_blocks:
-                                    isometric_blocks[block_name] = {}
+                #                         # if block_name not in isometric_blocks:
+                #                         #     isometric_blocks[block_name] = {}
 
-                                if key_v not in isometric_blocks[block_name]:
-                                    isometric_blocks[block_name][key_v] = {
-                                        "biome": biome_name,
-                                        "properties": properties,
-                                        "side": side,
-                                        "coordinates": []
-                                    }
+                #                         # if key_v not in isometric_blocks[block_name]:
+                #                         #     isometric_blocks[block_name][key_v] = {
+                #                         #         "biome": biome_name,
+                #                         #         "properties": properties,
+                #                         #         "side": side,
+                #                         #         "coordinates": []
+                #                         #     }
 
-                                isometric_blocks[block_name][key_v]["coordinates"].append((x_final, k, y_final))
+                #                         # isometric_blocks[block_name][key_v]["coordinates"].append((x_final, k, y_final))
+                #                 break
 
-                                #break
+                ########################
 
-                for block_name in isometric_blocks:
-                    isometric_blocks[block_name] = list(isometric_blocks[block_name].values())
+                # for block_name in isometric_blocks:
+                #     isometric_blocks[block_name] = list(isometric_blocks[block_name].values())
 
                 # second pass: select all blocks from max height and lowest surface
                 # for z in range(16):
@@ -518,11 +504,12 @@ class WorldService:
                 #                 continue
                 
                 # no need for heightmap
+                #print(isometric_blocks)
                 return ChunkDataResponse(
                     chunk_x=chunk_x,
                     chunk_z=chunk_z,
-                    heightmap=None,
-                    surface_blocks=[isometric_blocks],
+                    heightmap=cpt,
+                    surface_blocks=isometric_blocks,
                     sections=None,
                     palette=None
                 )
