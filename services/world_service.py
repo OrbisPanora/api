@@ -368,13 +368,13 @@ class WorldService:
 
                 for z in range(len(Matrix3D)):
                     for x in range(len(Matrix3D[z])):
-                        for y in range(min_value, max_value, 1):
+                        for y in range(min_value, max_value+1, 1):
                             y_index = y-min_value # peut etre verifier si out of range 77 -
                             #print("test0", y_index)
                             block = Matrix3D[z][x][y_index]
                             #print("test1", y_index)
                             if block != 0:
-                                for depth_y in range(y, max_value, 1): # 89 ... 77
+                                for depth_y in range(y, max_value+1, 1): # 89 ... 77
                                     # 
                                     y_index = depth_y - min_value # peut etre verifier si out of range
                                     #print("test10", y_index)
