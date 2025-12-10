@@ -511,7 +511,7 @@ class WorldService:
                     heightmap=cpt,
                     surface_blocks=isometric_blocks,
                     sections=None,
-                    palette=None
+                    palette=min_value
                 )
             
             elif mode == "render":

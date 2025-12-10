@@ -56,7 +56,7 @@ class ChunkDataResponse(BaseModel):
     surface_blocks: Optional[List[dict]|List[List]] = Field(None, description="Surface blocks with biomes (surface mode) or isometric blocks with depth info (isometric mode)")
     render_data: Optional[dict] = Field(None, description="Pre-calculated render data for optimized 2D display (render mode)")
     sections: Optional[List[dict]] = Field(None, description="Chunk sections (simplified/full mode)")
-    palette: Optional[List[str]] = Field(None, description="Block palette (simplified/full mode)")
+    palette: Optional[List[str]|int] = Field(None, description="Block palette (simplified/full mode)")
     
     class Config:
         json_schema_extra = {
