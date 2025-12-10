@@ -325,7 +325,7 @@ def generate_test_viewport_data(center_x: int, center_z: int, view_distance: int
 
 
 @router.get(
-    "/{chunk_x}/{chunk_z}",
+    "/{chunk_x}/{chunk_z}/{chunk_h}",
     response_model=APIResponse[ChunkDataResponse],
     summary="Get chunk data",
     description="Returns chunk data in various formats: heightmap (lightest), surface (for rendering), isometric (3D data), render (pre-calculated 2D display), simplified, or full.",
@@ -334,6 +334,7 @@ def generate_test_viewport_data(center_x: int, center_z: int, view_distance: int
 async def get_chunk(
     chunk_x: int,
     chunk_z: int,
+    chunk_h: int,
     mode: Literal["heightmap", "surface", "isometric", "render", "simplified", "full"] = Query(
         default="heightmap",
         description="Data format: heightmap (~1KB), surface (~10-50KB), isometric (~5-20KB), render (~2-10KB pre-calculated), simplified (~5KB), or full (~500KB-2MB)"
@@ -353,6 +354,7 @@ async def get_chunk(
     
     **Returns:**
     - chunk_x, chunk_z: Chunk coordinates
+    - chunk_h: Height of precedent chunk
     - heightmap: 16x16 array of heights (heightmap mode)
     - surface_blocks: Surface block data with biomes (surface/isometric modes)
     - render_data: Pre-calculated screen positions and sprites (render mode)
@@ -369,7 +371,7 @@ async def get_chunk(
         if not world_service.is_loaded():
             raise WorldNotLoadedError()
         
-        chunk_data = world_service.get_chunk_data(chunk_x, chunk_z, mode)
+        chunk_data = world_service.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
         
         if chunk_data is None:
             raise HTTPException(
