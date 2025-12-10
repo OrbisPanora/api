@@ -418,8 +418,8 @@ class WorldService:
                                                 global_z = global_biome_z + z
                                                 biome = self.world.get_biome(global_x, depth_y, global_z)
 
-                                                i=abs(abs(global_x) - global_chunk_x)
-                                                j=abs(abs(global_z) - global_chunk_z)
+                                               # i=abs(abs(global_x) - global_chunk_x)
+                                                #j=abs(abs(global_z) - global_chunk_z)
                                                 k2=min_value-chunk_h
                                                 k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
                                                 k=k+k2
@@ -430,8 +430,8 @@ class WorldService:
 
                                                 # remplacer 16 et 8 par des constantes passer ou definies ailleurs
                                                 # c'est sont des vectors de projection isometrique d'un block
-                                                x_final = 16 * (i - j)
-                                                y_final = 8*(i+j) - 16*k
+                                                x_final = 16 * (global_x - global_z)
+                                                y_final = 8*(global_x+global_z) - 16*k
                                                 x_final = round(x_final * 100) / 100
                                                 y_final = round(y_final * 100) / 100
                                                 block_name = depth_block.name().split(":")[1]
@@ -452,8 +452,8 @@ class WorldService:
                             except:
                                 continue
                 
-                # no need for heightmap
-                #print(isometric_blocks)
+
+                
                 return ChunkDataResponse(
                     chunk_x=chunk_x,
                     chunk_z=chunk_z,
