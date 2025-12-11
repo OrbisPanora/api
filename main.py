@@ -130,7 +130,7 @@ async def root():
                 "health": "/api/worlds/health"
             },
             "chunks": {
-                "get_chunk": "/api/chunks/{chunk_x}/{chunk_z}?mode=heightmap",
+                "get_chunk": "/api/chunks/{chunk_x}/{chunk_z}/{chunk_h}?mode=heightmap",
                 "area_heightmap": "/api/chunks/area/heightmap?x1=0&z1=0&x2=100&z2=100",
                 "tile": "/api/chunks/tile/{tile_x}/{tile_z}?size=16",
                 "viewport_render": "/api/chunks/viewport/render?center_x=0&center_z=0&view_distance=4"
