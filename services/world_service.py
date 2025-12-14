@@ -319,7 +319,7 @@ class WorldService:
                 for z in range(16):
                     for x in range(16):
                         # Find the highest solid block (surface)
-                        for y in range(320, -64, -1):
+                        for y in range(320, -65, -1):
                             try:
                                 block = chunk.get_block(x, y, z)
                                 if block:
@@ -420,21 +420,21 @@ class WorldService:
 
                                                 # i=abs(abs(global_x) - global_chunk_x)
                                                 #j=abs(abs(global_z) - global_chunk_z)-60 +64 = 4
-                                                # 60 - -64 = 60+64 = 124
-                                                # - 64 -> 320 => 384
-                                                # 0 -> 384
                                                 #k2= min_value-chunk_h # cunk_h - min_value est mieux je crois
-                                                k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
+                                                k=abs(depth_y - min_value) # height coeficient for render order
                                                 #k=k+k2
-
-                                                # depth_y min_value chunk_h
-                                                # 77 77 79
-                                                # 77 77 68
 
                                                 # remplacer 16 et 8 par des constantes passer ou definies ailleurs
                                                 # c'est sont des vectors de projection isometrique d'un block
+                                                # min = -60  h = -60 -> 0
+                                                # min = -61 h = -60 -> -1
+                                                # 60 - 61 = -1
+
+                                                # min = 77 h=77 -> 0
+                                                # min = 79 h=77 -> -2
+                                                # 77 - 79 = -2
                                                 x_final = 16 * (global_x - global_z)
-                                                y_final = (8*(global_x+global_z) - 16*k)+(chunk_h-min_value)
+                                                y_final = (8*(global_x+global_z) - 16*k)+(chunk_h-min_value)*16
                                                 x_final = round(x_final * 100) / 100
                                                 y_final = round(y_final * 100) / 100
                                                 block_name = depth_block.name().split(":")[1]
