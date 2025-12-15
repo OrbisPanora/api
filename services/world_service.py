@@ -11,6 +11,240 @@ import os
 import zipfile
 import tempfile
 import shutil
+import concurrent.futures
+import asyncio
+import time
+import traceback
+
+# Global cache for World instances in worker process
+_worker_worlds = {}
+
+def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
+    """
+    Worker function to generate render data in a separate process.
+    """
+    try:
+        # Check cache/Re-instantiate World for this process
+        global _worker_worlds
+        cache_key = (world_path, dimension)
+        
+        if cache_key not in _worker_worlds:
+            # print(f"[WORKER {os.getpid()}] Initializing World for {cache_key}")
+            _worker_worlds[cache_key] = World(world_path, dimension=dimension)
+            
+        world = _worker_worlds[cache_key]
+        
+        chunk = world.get_chunk(chunk_x, chunk_z)
+        if chunk is None:
+            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
+        render_blocks = []
+        
+        AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
+        INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
+                      'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
+                      'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
+                      'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
+                      'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
+                      'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
+
+        global_biome_x = chunk_x * 16
+        global_biome_z = chunk_z * 16
+
+        # Initialize bounds BEFORE usage to prevent UnboundLocalError
+        min_screen_x = float('inf')
+        max_screen_x = float('-inf')
+        min_screen_y = float('inf')
+        max_screen_y = float('-inf')
+
+        # First pass: find lowest surface block and max height
+        min_value = 320
+        max_value = -64
+
+        for z in range(16):
+            for x in range(16):
+                for y in range(320, -64, -1):
+                    try:
+                        block = chunk.get_block(x, y, z)
+                        if block:
+                            if block.name() not in INVISIBLE:
+                                if y < min_value:
+                                    min_value = y
+                            if block.name() not in AIR:
+                                if y > max_value:
+                                    max_value = y
+                                break
+                    except:
+                        continue
+        
+        # If no blocks found
+        if min_value > max_value:
+             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
+        # Second pass: select all blocks
+        for z in range(16):
+            for x in range(16):
+                global_x = global_biome_x + x
+                global_z = global_biome_z + z
+                
+                for y in range(min_value, max_value + 1, 1):
+                    try:
+                        block = chunk.get_block(x, y, z)
+                        if block and block.name() not in AIR:
+                            k = y
+                            x_final = 16 * (global_x - global_z)
+                            y_final = 8 * (global_x + global_z) - 16 * k
+                            x_final = round(x_final * 100) / 100
+                            y_final = round(y_final * 100) / 100
+
+                            block_name = block.name().split(":")[1]
+                            sprite_key = f"{block_name}.webp"
+
+                            render_blocks.append([sprite_key, x_final, y_final])
+
+                            min_screen_x = min(min_screen_x, x_final)
+                            max_screen_x = max(max_screen_x, x_final + 32)
+                            min_screen_y = min(min_screen_y, y_final)
+                            max_screen_y = max(max_screen_y, y_final + 32)
+                    except:
+                        continue
+
+        sprites_needed = set(b[0] for b in render_blocks)
+        sprites = {key: {"id": key} for key in sprites_needed}
+
+        if min_screen_x == float('inf'):
+            min_screen_x = 0
+            max_screen_x = 100
+            min_screen_y = 0
+            max_screen_y = 100
+
+        return {
+            "blocks": render_blocks,
+            "sprites": sprites,
+            "bounds": {
+                "min_x": min_screen_x,
+                "max_x": max_screen_x,
+                "min_y": min_screen_y,
+                "max_y": max_screen_y
+            }
+        }
+
+    except Exception as e:
+        print(f"Worker error for chunk ({chunk_x}, {chunk_z}): {e}")
+        # traceback.print_exc()
+        return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+import concurrent.futures
+import asyncio
+import time
+import traceback
+
+def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
+    """
+    Worker function to generate render data in a separate process.
+    """
+    try:
+        # Re-instantiate World for this process
+        world = World(world_path, dimension=dimension)
+        
+        chunk = world.get_chunk(chunk_x, chunk_z)
+        if chunk is None:
+            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
+        render_blocks = []
+        
+        AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
+        INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
+                      'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
+                      'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
+                      'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
+                      'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
+                      'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
+
+        global_biome_x = chunk_x * 16
+        global_biome_z = chunk_z * 16
+
+        # Initialize bounds BEFORE usage to prevent UnboundLocalError
+        min_screen_x = float('inf')
+        max_screen_x = float('-inf')
+        min_screen_y = float('inf')
+        max_screen_y = float('-inf')
+
+        # First pass: find lowest surface block and max height
+        min_value = 320
+        max_value = -64
+
+        for z in range(16):
+            for x in range(16):
+                for y in range(320, -64, -1):
+                    try:
+                        block = chunk.get_block(x, y, z)
+                        if block:
+                            if block.name() not in INVISIBLE:
+                                if y < min_value:
+                                    min_value = y
+                            if block.name() not in AIR:
+                                if y > max_value:
+                                    max_value = y
+                                break
+                    except:
+                        continue
+        
+        # If no blocks found
+        if min_value > max_value:
+             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
+        # Second pass: select all blocks
+        for z in range(16):
+            for x in range(16):
+                global_x = global_biome_x + x
+                global_z = global_biome_z + z
+                
+                for y in range(min_value, max_value + 1, 1):
+                    try:
+                        block = chunk.get_block(x, y, z)
+                        if block and block.name() not in AIR:
+                            k = y
+                            x_final = 16 * (global_x - global_z)
+                            y_final = 8 * (global_x + global_z) - 16 * k
+                            x_final = round(x_final * 100) / 100
+                            y_final = round(y_final * 100) / 100
+
+                            block_name = block.name().split(":")[1]
+                            sprite_key = f"{block_name}.webp"
+
+                            render_blocks.append([sprite_key, x_final, y_final])
+
+                            min_screen_x = min(min_screen_x, x_final)
+                            max_screen_x = max(max_screen_x, x_final + 32)
+                            min_screen_y = min(min_screen_y, y_final)
+                            max_screen_y = max(max_screen_y, y_final + 32)
+                    except:
+                        continue
+
+        sprites_needed = set(b[0] for b in render_blocks)
+        sprites = {key: {"id": key} for key in sprites_needed}
+
+        if min_screen_x == float('inf'):
+            min_screen_x = 0
+            max_screen_x = 100
+            min_screen_y = 0
+            max_screen_y = 100
+
+        return {
+            "blocks": render_blocks,
+            "sprites": sprites,
+            "bounds": {
+                "min_x": min_screen_x,
+                "max_x": max_screen_x,
+                "min_y": min_screen_y,
+                "max_y": max_screen_y
+            }
+        }
+
+    except Exception as e:
+        print(f"Worker error for chunk ({chunk_x}, {chunk_z}): {e}")
+        # traceback.print_exc()
+        return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
 
 class WorldService:
@@ -19,6 +253,9 @@ class WorldService:
     _instance: Optional['WorldService'] = None
     _world: Optional[World] = None
     _world_path: Optional[str] = None
+    _executor: Optional[concurrent.futures.ProcessPoolExecutor] = None
+
+
     
     def __new__(cls):
         """Ensure only one instance exists (singleton pattern)."""
@@ -31,6 +268,8 @@ class WorldService:
         # Temporarily skip world loading to test API connectivity
         # if self._world is None:
         #     self._load_world()
+        if self._executor is None:
+            self._executor = concurrent.futures.ProcessPoolExecutor(max_workers=8)
         pass
     
     def _load_world(self):
@@ -491,111 +730,41 @@ class WorldService:
             print(f"Error getting chunk data: {e}")
             return None
     
+    async def get_render_data_async(self, chunk_x: int, chunk_z: int) -> dict:
+        """
+        Get render data asynchronously using process pool.
+        """
+        if not self.world_path:
+            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+            
+        loop = asyncio.get_event_loop()
+        dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
+        
+        try:
+            return await loop.run_in_executor(
+                self._executor,
+                _worker_generate_render_data,
+                self.world_path,
+                dimension,
+                chunk_x,
+                chunk_z
+            )
+        except Exception as e:
+            print(f"Async render generation failed: {e}")
+            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
     def _generate_render_data(self, chunk_x: int, chunk_z: int) -> dict:
         """
-        Generate pre-calculated render data optimized for 2D isometric display.
-        EXACT COPY of 'isometric' mode logic from get_chunk_data.
+        generate pre-calculated render data (Synchronous wrapper for legacy calls, though less efficient)
         """
-        try:
-            chunk = self.world.get_chunk(chunk_x, chunk_z)
-            if chunk is None:
-                return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+        # For synchronous calls, we unfortunately have to run it inline or block
+        # Using the worker directly to share logic
+        if not self.world_path:
+             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+        
+        dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
+        return _worker_generate_render_data(self.world_path, dimension, chunk_x, chunk_z)
 
-            render_blocks = []
-            
-            AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
-            INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
-                          'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
-                          'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-                          'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
-                          'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
-                          'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
-
-            global_biome_x = chunk_x * 16
-            global_biome_z = chunk_z * 16
-
-            # First pass: find lowest surface block and max height (EXACTLY like isometric mode)
-            min_value = 320
-            max_value = -64
-
-            for z in range(16):
-                for x in range(16):
-                    for y in range(320, -64, -1):
-                        try:
-                            block = chunk.get_block(x, y, z)
-                            if block:
-                                if block.name() not in INVISIBLE:
-                                    if y < min_value:
-                                        min_value = y
-                                if block.name() not in AIR:
-                                    if y > max_value:
-                                        max_value = y
-                                    break
-                        except:
-                            continue
-
-            # Second pass: select all blocks from min to max height (OPTIMIZED - single pass per column)
-            for z in range(16):
-                for x in range(16):
-                    global_x = global_biome_x + x
-                    global_z = global_biome_z + z
-                    
-                    # Single pass: collect all non-air blocks in range
-                    for y in range(min_value, max_value + 1, 1):
-                        try:
-                            block = chunk.get_block(x, y, z)
-                            if block and block.name() not in AIR:
-                                # Use GLOBAL baseline (Y=0 = sea level) for alignment across chunks
-                                # NOT per-chunk min_value which causes decalage
-                                k = y  # Absolute world Y, no offset
-
-                                x_final = 16 * (global_x - global_z)
-                                y_final = 8 * (global_x + global_z) - 16 * k
-                                x_final = round(x_final * 100) / 100
-                                y_final = round(y_final * 100) / 100
-
-                                block_name = block.name().split(":")[1]
-                                sprite_key = f"{block_name}.webp"
-
-                                render_blocks.append({
-                                    "screen_x": x_final,
-                                    "screen_y": y_final,
-                                    "world_x": global_x,
-                                    "world_y": y,
-                                    "world_z": global_z,
-                                    "block": block.name(),
-                                    "biome": "plains",
-                                    "sprite": sprite_key,
-                                    "is_surface": False,
-                                    "depth": y
-                                })
-                        except:
-                            continue
-
-            sprites_needed = set(b["sprite"] for b in render_blocks)
-            sprites = {key: {"id": key} for key in sprites_needed}
-
-            min_screen_x = min((b["screen_x"] for b in render_blocks), default=0)
-            max_screen_x = max((b["screen_x"] + 32 for b in render_blocks), default=100)
-            min_screen_y = min((b["screen_y"] for b in render_blocks), default=0)
-            max_screen_y = max((b["screen_y"] + 32 for b in render_blocks), default=100)
-
-            return {
-                "blocks": render_blocks,
-                "sprites": sprites,
-                "bounds": {
-                    "min_x": min_screen_x,
-                    "max_x": max_screen_x,
-                    "min_y": min_screen_y,
-                    "max_y": max_screen_y
-                }
-            }
-
-        except Exception as e:
-            print(f"Error generating render data for chunk ({chunk_x}, {chunk_z}): {e}")
-            import traceback
-            traceback.print_exc()
-            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
     
     def _get_sprite_key(self, block_name: str, biome_name: str) -> str:
         """Generate a unique key for sprite caching based on block and biome."""
