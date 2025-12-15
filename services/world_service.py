@@ -223,37 +223,47 @@ class WorldService:
             ChunkDataResponse object or None if chunk not found
         """
         try:
-            chunk = self.world.get_chunk(chunk_x, chunk_z)
+            try:
+                chunk = self.world.get_chunk(chunk_x, chunk_z)
+            except Exception:
+                chunk = None
+                
             if chunk is None:
                 return None
             
             if mode == "heightmap":
-                # Get heightmap (topmost solid blocks)
-                heightmap = []
-                for z in range(16):
-                    height_row = []
-                    for x in range(16):
-                        # Find the highest solid block
-                        height = 0
-                        for y in range(320, -64, -1):  # From top to bottom
-                            try:
-                                block = chunk.get_block(x, y, z)
-                                if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
-                                    height = y
-                                    break
-                            except:
-                                continue
-                        height_row.append(height)
-                    heightmap.append(height_row)
-                
-                return ChunkDataResponse(
-                    chunk_x=chunk_x,
-                    chunk_z=chunk_z,
-                    heightmap=heightmap,
-                    surface_blocks=None,
-                    sections=None,
-                    palette=None
-                )
+                try:
+                    # Get heightmap (topmost solid blocks)
+                    heightmap = []
+                    for z in range(16):
+                        height_row = []
+                        for x in range(16):
+                            # Find the highest solid block
+                            height = 0
+                            for y in range(320, -64, -1):  # From top to bottom
+                                try:
+                                    block = chunk.get_block(x, y, z)
+                                    if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
+                                        height = y
+                                        break
+                                except Exception:
+                                    pass
+                            height_row.append(height)
+                        heightmap.append(height_row)
+                    
+                    return ChunkDataResponse(
+                        chunk_x=chunk_x,
+                        chunk_z=chunk_z,
+                        heightmap=heightmap,
+                        surface_blocks=None,
+                        sections=None,
+                        palette=None
+                    )
+                except Exception as e:
+                    print(f"Error generating heightmap for chunk ({chunk_x}, {chunk_z}): {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return None
             
             elif mode == "surface":
                 # Get surface blocks with biomes
@@ -484,7 +494,7 @@ class WorldService:
     def _generate_render_data(self, chunk_x: int, chunk_z: int) -> dict:
         """
         Generate pre-calculated render data optimized for 2D isometric display.
-        Simplified version focusing on surface blocks only.
+        EXACT COPY of 'isometric' mode logic from get_chunk_data.
         """
         try:
             chunk = self.world.get_chunk(chunk_x, chunk_z)
@@ -492,101 +502,99 @@ class WorldService:
                 return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
             render_blocks = []
-            sprites_needed = set()
+            
+            AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
+            INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
+                          'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
+                          'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
+                          'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
+                          'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
+                          'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
 
-            # Pre-calculate isometric projection constants
-            # For proper isometric projection: 30-degree angle creates diamond shape
-            TILE_WIDTH = 32   # pixels per tile width (match JavaScript)
-            TILE_HEIGHT = 16  # pixels per tile height (half of width for isometric)
-            BLOCK_HEIGHT = 12 # pixels per block height (match JavaScript)
+            global_biome_x = chunk_x * 16
+            global_biome_z = chunk_z * 16
 
-            min_screen_x = float('inf')
-            max_screen_x = float('-inf')
-            min_screen_y = float('inf')
-            max_screen_y = float('-inf')
+            # First pass: find lowest surface block and max height (EXACTLY like isometric mode)
+            min_value = 320
+            max_value = -64
 
-            # Full optimized scan to retrieve all surface blocks
-            for local_x in range(0, 16):  # Full X coverage
-                for local_z in range(0, 16):
-                    # Scan multiple layers for more visual details
-                    surface_blocks_found = 0
-                    max_surface_blocks = 3  # Maximum visible blocks per column
-
-                    # Scan from top to bottom to find all surface blocks
-                    for y in range(320, -64, -1):  # Full Minecraft height range
+            for z in range(16):
+                for x in range(16):
+                    for y in range(320, -64, -1):
                         try:
-                            block = chunk.get_block(local_x, y, local_z)
-                            if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
-                                global_x = chunk_x * 16 + local_x
-                                global_z = chunk_z * 16 + local_z
+                            block = chunk.get_block(x, y, z)
+                            if block:
+                                if block.name() not in INVISIBLE:
+                                    if y < min_value:
+                                        min_value = y
+                                if block.name() not in AIR:
+                                    if y > max_value:
+                                        max_value = y
+                                    break
+                        except:
+                            continue
 
-                                # Get biome for this position
-                                try:
-                                    biome = self.world.get_biome(global_x, y, global_z)
-                                    biome_name = biome.name() if biome else "plains"
-                                except:
-                                    biome_name = "plains"
+            # Second pass: select all blocks from min to max height (OPTIMIZED - single pass per column)
+            for z in range(16):
+                for x in range(16):
+                    global_x = global_biome_x + x
+                    global_z = global_biome_z + z
+                    
+                    # Single pass: collect all non-air blocks in range
+                    for y in range(min_value, max_value + 1, 1):
+                        try:
+                            block = chunk.get_block(x, y, z)
+                            if block and block.name() not in AIR:
+                                # Use GLOBAL baseline (Y=0 = sea level) for alignment across chunks
+                                # NOT per-chunk min_value which causes decalage
+                                k = y  # Absolute world Y, no offset
 
-                                # Use the actual block name
-                                block_name = block.name()
+                                x_final = 16 * (global_x - global_z)
+                                y_final = 8 * (global_x + global_z) - 16 * k
+                                x_final = round(x_final * 100) / 100
+                                y_final = round(y_final * 100) / 100
 
-                                # Calculate isometric coordinates server-side (but ignored client-side)
-                                screen_x = (global_x - global_z) * (TILE_WIDTH / 2)
-                                screen_y = (global_x + global_z) * (TILE_HEIGHT / 2) - y * BLOCK_HEIGHT
-
-                                # Update bounds
-                                min_screen_x = min(min_screen_x, screen_x)
-                                max_screen_x = max(max_screen_x, screen_x + TILE_WIDTH)
-                                min_screen_y = min(min_screen_y, screen_y)
-                                max_screen_y = max(max_screen_y, screen_y + BLOCK_HEIGHT)
+                                block_name = block.name().split(":")[1]
+                                sprite_key = f"{block_name}.webp"
 
                                 render_blocks.append({
-                                    "screen_x": screen_x,  # Kept for compatibility but ignored client-side
-                                    "screen_y": screen_y,  # Kept for compatibility but ignored client-side
+                                    "screen_x": x_final,
+                                    "screen_y": y_final,
                                     "world_x": global_x,
                                     "world_y": y,
                                     "world_z": global_z,
-                                    "block": block_name,
-                                    "biome": biome_name,
-                                    "sprite": self._get_sprite_key(block_name, biome_name),
-                                    "is_surface": (surface_blocks_found == 0),  # First block = surface
+                                    "block": block.name(),
+                                    "biome": "plains",
+                                    "sprite": sprite_key,
+                                    "is_surface": False,
                                     "depth": y
                                 })
-
-                                surface_blocks_found += 1
-                                # Limit to a few blocks per column to avoid overload
-                                if surface_blocks_found >= max_surface_blocks:
-                                    break
-
-                        except Exception as e:
-                            # Skip individual block errors
+                        except:
                             continue
 
-            # Sort blocks by depth (back to front) - now done client-side
-            # render_blocks.sort(key=lambda b: b['depth'], reverse=True)
+            sprites_needed = set(b["sprite"] for b in render_blocks)
+            sprites = {key: {"id": key} for key in sprites_needed}
 
-            # Generate sprite data (kept for compatibility)
-            sprites_needed = set()
-            for block in render_blocks:
-                sprites_needed.add(block["sprite"])
-
-            sprites = {}
-            for sprite_key in sprites_needed:
-                sprites[sprite_key] = self._get_sprite_data(sprite_key)
+            min_screen_x = min((b["screen_x"] for b in render_blocks), default=0)
+            max_screen_x = max((b["screen_x"] + 32 for b in render_blocks), default=100)
+            min_screen_y = min((b["screen_y"] for b in render_blocks), default=0)
+            max_screen_y = max((b["screen_y"] + 32 for b in render_blocks), default=100)
 
             return {
                 "blocks": render_blocks,
                 "sprites": sprites,
                 "bounds": {
-                    "min_x": min_screen_x if min_screen_x != float('inf') else 0,
-                    "max_x": max_screen_x if max_screen_x != float('-inf') else 100,
-                    "min_y": min_screen_y if min_screen_y != float('inf') else 0,
-                    "max_y": max_screen_y if max_screen_y != float('-inf') else 100
+                    "min_x": min_screen_x,
+                    "max_x": max_screen_x,
+                    "min_y": min_screen_y,
+                    "max_y": max_screen_y
                 }
             }
 
         except Exception as e:
             print(f"Error generating render data for chunk ({chunk_x}, {chunk_z}): {e}")
+            import traceback
+            traceback.print_exc()
             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
     
     def _get_sprite_key(self, block_name: str, biome_name: str) -> str:

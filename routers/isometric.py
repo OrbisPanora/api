@@ -11,11 +11,12 @@ import time
 import os
 import gc
 from typing import Dict, List, Optional, Tuple, Any, NamedTuple
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.responses import APIResponse
 from services.world_service import WorldService, get_world_service
+from anvil import World
 
 try:
     from anvil.empty_chunk import EmptyChunk
@@ -71,13 +72,178 @@ class ChunkData(NamedTuple):
     bounds: Tuple[int, int, int, int]  # min_x, max_x, min_z, max_z
 
 
+def _worker_extract_all_blocks(world_path: str, dimension: str, cx: int, cz: int, min_y: int, max_y: int) -> ChunkData:
+    """
+    Worker function to extract blocks from a chunk.
+    Running in a separate process, so it must instantiate its own World access.
+    """
+    try:
+        # Re-instantiate World for this process
+        world = World(world_path, dimension=dimension)
+        
+        blocks = []
+        chunk = world.get_chunk(cx, cz)
+        
+        if not chunk or isinstance(chunk, EmptyChunk):
+            return ChunkData(cx, cz, [], (cx*16, cx*16+15, cz*16, cz*16+15))
+        
+        min_scan = max(min_y, -64)
+        max_scan = min(max_y, 319)
+        
+        # Optimization: Scan by Section (16x16x16)
+        min_section_y = min_scan // 16
+        max_section_y = max_scan // 16
+        
+        for sy in range(min_section_y, max_section_y + 1):
+            section = chunk.get_section(sy)
+            if section is None:
+                continue
+            
+            # Smart Skip: Check Palette
+            palette = chunk.get_palette(section)
+            if not palette:
+                continue
+                
+            # If all blocks in palette are Air/Ignored, skip the whole section
+            is_empty_section = True
+            for block_type in palette:
+                name = block_type.name()
+                if name not in AIR_BLOCKS:
+                    is_empty_section = False
+                    break
+            
+            if is_empty_section:
+                continue
+                
+            # Iterate only within this section's Y range constrained by request
+            y_start = max(sy * 16, min_scan)
+            y_end = min((sy + 1) * 16 - 1, max_scan)
+            
+            for y in range(y_start, y_end + 1):
+                for lx in range(16):
+                    for lz in range(16):
+                        try:
+                            block = chunk.get_block(lx, y, lz)
+                            if block:
+                                name = block.name()
+                                if name and name not in AIR_BLOCKS:
+                                    gx, gz = cx * 16 + lx, cz * 16 + lz
+                                    try:
+                                        biome = world.get_biome(gx, y, gz)
+                                        biome_name = biome.name() if biome else "minecraft:plains"
+                                    except:
+                                        biome_name = "minecraft:plains"
+                                    
+                                    blocks.append(BlockData(gx, y, gz, name, biome_name))
+                        except:
+                            continue
+
+        return ChunkData(cx, cz, blocks, (cx*16, cx*16+15, cz*16, cz*16+15))
+        
+    except Exception as e:
+        logger.warning(f"Failed chunk {cx},{cz}: {e}")
+        return ChunkData(cx, cz, [], (cx*16, cx*16+15, cz*16, cz*16+15))
+
+
+def _worker_extract_surface_blocks(world_path: str, dimension: str, cx: int, cz: int) -> List[BlockData]:
+    """
+    Worker for extracting surface blocks (optimized).
+    """
+    try:
+        world = World(world_path, dimension=dimension)
+        blocks = []
+        chunk = world.get_chunk(cx, cz)
+        
+        if not chunk or isinstance(chunk, EmptyChunk):
+            return []
+        
+        # Load relevant blocks into a map first (sparse loading)
+        chunk_blocks = {}
+        
+        # We scan all relevant sections
+        for sy in range(-4, 20): # -64 to 319 range roughly
+            section = chunk.get_section(sy)
+            if section is None:
+                continue
+                
+            palette = chunk.get_palette(section)
+            if not palette:
+                continue
+                
+            is_empty = True
+            for b in palette:
+                if b.name() not in AIR_BLOCKS:
+                    is_empty = False
+                    break
+            
+            if is_empty:
+                continue
+                
+            # Read blocks in this section
+            base_y = sy * 16
+            for y in range(base_y, base_y + 16):
+                if y < -64 or y > 319: continue
+                
+                for lx in range(16):
+                    for lz in range(16):
+                        try:
+                            block = chunk.get_block(lx, y, lz)
+                            # Only store non-air blocks to save memory
+                            if block and block.name() not in AIR_BLOCKS:
+                                chunk_blocks[(lx, y, lz)] = block.name()
+                        except:
+                            pass
+                            
+        # Now apply visibility logic using the map
+        directions = [(0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)]
+        
+        for (lx, y, lz), block_name in chunk_blocks.items():
+            gx, gz = cx * 16 + lx, cz * 16 + lz
+            has_exposed_face = False
+            
+            for dx, dy, dz in directions:
+                nx, ny, nz = lx + dx, y + dy, lz + dz
+                
+                if ny < -64 or ny > 319:
+                    has_exposed_face = True
+                    break
+                if nx < 0 or nx >= 16 or nz < 0 or nz >= 16:
+                    has_exposed_face = True
+                    break
+                    
+                neighbor = chunk_blocks.get((nx, ny, nz))
+                # If neighbor is missing (air) or transparent
+                if neighbor is None or neighbor in TRANSPARENT_BLOCKS:
+                    has_exposed_face = True
+                    break
+            
+            if block_name in TRANSPARENT_BLOCKS:
+                has_exposed_face = True
+                
+            if has_exposed_face:
+                try:
+                    biome = world.get_biome(gx, y, gz)
+                    biome_name = biome.name() if biome else "minecraft:plains"
+                except:
+                    biome_name = "minecraft:plains"
+                
+                blocks.append(BlockData(gx, y, gz, block_name, biome_name))
+                
+        return blocks
+        
+    except Exception as e:
+        logger.warning(f"Surface extraction failed for {cx},{cz}: {e}")
+        return []
+
+
 class IsometricService:
     """Service for extracting all blocks for isometric view."""
     
     MAX_CACHE_SIZE = 256
     
     def __init__(self, max_workers: int = 8):
-        self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="iso")
+        # Use ProcessPoolExecutor for true parallelism bypassing GIL
+        self.executor = ProcessPoolExecutor(max_workers=max_workers)
         self._cache: Dict[str, ChunkData] = {}
         self._cache_order: List[str] = []
         self._cache_lock = asyncio.Lock()
@@ -95,7 +261,13 @@ class IsometricService:
         unique_coords = list(set(chunk_coords))
         
         # Parallel processing of chunks
-        tasks = [self._process_chunk(world_service, cx, cz, min_y, max_y) for cx, cz in unique_coords]
+        path = world_service.world_path
+        # Defensive check for dimension
+        dim = 'overworld'
+        if hasattr(world_service.world, 'dimension'):
+            dim = world_service.world.dimension
+        
+        tasks = [self._process_chunk(path, dim, cx, cz, min_y, max_y) for cx, cz in unique_coords]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Aggregate results
@@ -142,7 +314,7 @@ class IsometricService:
             "cache_hit_rate": self._get_cache_hit_rate()
         }
 
-    async def _process_chunk(self, world_service, cx: int, cz: int, min_y: int, max_y: int) -> ChunkData:
+    async def _process_chunk(self, world_path: str, dimension: str, cx: int, cz: int, min_y: int, max_y: int) -> ChunkData:
         """Process a chunk with LRU caching."""
         cache_key = f"{cx}_{cz}_{min_y}_{max_y}"
         
@@ -158,11 +330,10 @@ class IsometricService:
         try:
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(
-                self.executor, self._extract_all_blocks, world_service, cx, cz, min_y, max_y
+                self.executor, _worker_extract_all_blocks, world_path, dimension, cx, cz, min_y, max_y
             )
             
             async with self._cache_lock:
-                # LRU eviction if cache full
                 while len(self._cache) >= self.MAX_CACHE_SIZE and self._cache_order:
                     old = self._cache_order.pop(0)
                     self._cache.pop(old, None)
@@ -171,47 +342,7 @@ class IsometricService:
             
             return data
         except Exception as e:
-            logger.error(f"Chunk {cx},{cz} failed: {e}")
-            return ChunkData(cx, cz, [], (cx*16, cx*16+15, cz*16, cz*16+15))
-
-    @staticmethod
-    def _extract_all_blocks(world_service, cx: int, cz: int, min_y: int, max_y: int) -> ChunkData:
-        """Extracts ALL non-air blocks from a chunk (synchronous)."""
-        blocks = []
-        
-        try:
-            chunk = world_service.world.get_chunk(cx, cz)
-            if not chunk or isinstance(chunk, EmptyChunk):
-                return ChunkData(cx, cz, [], (cx*16, cx*16+15, cz*16, cz*16+15))
-            
-            min_scan = max(min_y, -64)
-            max_scan = min(max_y, 319)
-            
-            for lx in range(16):
-                for lz in range(16):
-                    gx, gz = cx * 16 + lx, cz * 16 + lz
-                    
-                    for y in range(min_scan, max_scan + 1):
-                        try:
-                            block = chunk.get_block(lx, y, lz)
-                            if block:
-                                name = block.name()
-                                if name and name not in AIR_BLOCKS:
-                                    # Biome (fallback on error)
-                                    try:
-                                        biome = world_service.world.get_biome(gx, y, gz)
-                                        biome_name = biome.name() if biome else "minecraft:plains"
-                                    except:
-                                        biome_name = "minecraft:plains"
-                                    
-                                    blocks.append(BlockData(gx, y, gz, name, biome_name))
-                        except:
-                            continue
-            
-            return ChunkData(cx, cz, blocks, (cx*16, cx*16+15, cz*16, cz*16+15))
-            
-        except Exception as e:
-            logger.warning(f"Failed chunk {cx},{cz}: {e}")
+            logger.error(f"Chunk process dispatch {cx},{cz} failed: {e}")
             return ChunkData(cx, cz, [], (cx*16, cx*16+15, cz*16, cz*16+15))
 
     def scan_all_regions(self, world_service: WorldService) -> List[Tuple[int, int]]:
@@ -246,8 +377,13 @@ class IsometricService:
 
 
 # Global instance
-_service = IsometricService()
-def get_isometric_service(): return _service
+_service = None
+
+def get_isometric_service():
+    global _service
+    if _service is None:
+        _service = IsometricService()
+    return _service
 
 
 # === ROUTER ===
@@ -384,10 +520,15 @@ async def get_surface_blocks(
     
     start = time.time()
     
+    path = world_service.world_path
+    dim = 'overworld'
+    if hasattr(world_service.world, 'dimension'):
+        dim = world_service.world.dimension
+
     # Extract all non-air blocks from all chunks
     loop = asyncio.get_event_loop()
     tasks = [
-        loop.run_in_executor(iso_service.executor, _extract_all_blocks_simple, world_service, cx, cz)
+        loop.run_in_executor(iso_service.executor, _worker_extract_surface_blocks, path, dim, cx, cz)
         for cx, cz in chunks
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -443,50 +584,12 @@ async def get_surface_blocks(
     })
 
 
-def _extract_all_blocks_simple(world_service, cx: int, cz: int) -> List[BlockData]:
-    """Extract all non-air blocks from a chunk (no culling)."""
-    blocks = []
-    try:
-        chunk = world_service.world.get_chunk(cx, cz)
-        if not chunk or isinstance(chunk, EmptyChunk):
-            return []
-        
-        for lx in range(16):
-            for lz in range(16):
-                gx, gz = cx * 16 + lx, cz * 16 + lz
-                for y in range(-64, 320):
-                    try:
-                        block = chunk.get_block(lx, y, lz)
-                        if block:
-                            name = block.name()
-                            if name and name not in AIR_BLOCKS:
-                                try:
-                                    biome = world_service.world.get_biome(gx, y, gz)
-                                    biome_name = biome.name() if biome else "minecraft:plains"
-                                except:
-                                    biome_name = "minecraft:plains"
-                                blocks.append(BlockData(gx, y, gz, name, biome_name))
-                    except:
-                        continue
-        return blocks
-    except Exception as e:
-        logger.warning(f"Extract failed for chunk {cx},{cz}: {e}")
-        return []
-
-
 def _apply_global_culling(blocks: List[BlockData]) -> List[BlockData]:
     """
     Optimized isometric surface culling.
-    
-    Strategy:
-    1. Always keep the highest solid block per (x,z) column = guaranteed surface
-    2. Always keep transparent blocks (trees, flowers, etc.)
-    3. Keep blocks with at least one face exposed to the isometric camera
     """
     if not blocks:
         return []
-    
-    logger.info(f"Culling {len(blocks)} blocks...")
     
     # Build position lookup
     block_map = {(b.x, b.y, b.z): b.block for b in blocks}
@@ -536,83 +639,7 @@ def _apply_global_culling(blocks: List[BlockData]) -> List[BlockData]:
             visible.append(b)
             seen.add(pos)
     
-    logger.info(f"Culling: {len(blocks)} -> {len(visible)} blocks")
     return visible
-
-
-def _extract_surface_blocks(world_service, cx: int, cz: int) -> List[BlockData]:
-    """
-    Extracts VISIBLE blocks from a chunk.
-    A block is visible if it has at least one exposed face (adjacent to air or transparent).
-    Includes: terrain surface, trees, flowers, cave entrances, cliffs...
-    """
-    blocks = []
-    
-    try:
-        chunk = world_service.world.get_chunk(cx, cz)
-        if not chunk or isinstance(chunk, EmptyChunk):
-            return []
-        
-        # Pre-load all chunk blocks into a dict for fast access
-        chunk_blocks = {}
-        for lx in range(16):
-            for lz in range(16):
-                for y in range(-64, 320):
-                    try:
-                        block = chunk.get_block(lx, y, lz)
-                        if block:
-                            name = block.name()
-                            if name and name not in AIR_BLOCKS:
-                                chunk_blocks[(lx, y, lz)] = name
-                    except:
-                        continue
-        
-        # For each non-air block, check if it has an exposed face
-        directions = [(0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)]
-        
-        for (lx, y, lz), block_name in chunk_blocks.items():
-            gx, gz = cx * 16 + lx, cz * 16 + lz
-            
-            # Check if at least one face is exposed
-            has_exposed_face = False
-            
-            for dx, dy, dz in directions:
-                nx, ny, nz = lx + dx, y + dy, lz + dz
-                
-                # Out of Y bounds = exposed
-                if ny < -64 or ny > 319:
-                    has_exposed_face = True
-                    break
-                
-                # Outside chunk = assume exposed (simplifies code)
-                if nx < 0 or nx >= 16 or nz < 0 or nz >= 16:
-                    has_exposed_face = True
-                    break
-                
-                # Neighbor = air or transparent = face exposed
-                neighbor = chunk_blocks.get((nx, ny, nz))
-                if neighbor is None or neighbor in TRANSPARENT_BLOCKS:
-                    has_exposed_face = True
-                    break
-            
-            # Transparent blocks are always visible (leaves, flowers, etc.)
-            if block_name in TRANSPARENT_BLOCKS:
-                has_exposed_face = True
-            
-            if has_exposed_face:
-                try:
-                    biome = world_service.world.get_biome(gx, y, gz)
-                    biome_name = biome.name() if biome else "minecraft:plains"
-                except:
-                    biome_name = "minecraft:plains"
-                
-                blocks.append(BlockData(gx, y, gz, block_name, biome_name))
-        
-        return blocks
-        
-    except Exception as e:
-        logger.warning(f"Surface extraction failed for {cx},{cz}: {e}")
-        return []
 
 
 @router.post("/cache/clear")

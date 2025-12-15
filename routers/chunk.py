@@ -371,7 +371,7 @@ async def get_chunk(
         if not world_service.is_loaded():
             raise WorldNotLoadedError()
         
-        chunk_data = world_service.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
+        chunk_data = await world_service.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
         
         if chunk_data is None:
             raise HTTPException(
