@@ -5,6 +5,8 @@ Provides chunk data in various formats for the isometric viewer.
 
 from datetime import datetime
 from typing import Literal
+import asyncio
+
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -35,7 +37,7 @@ router = APIRouter(
 async def get_viewport_render(
     center_x: int = Query(..., description="Center chunk X coordinate"),
     center_z: int = Query(..., description="Center chunk Z coordinate"),
-    view_distance: int = Query(4, ge=1, le=16, description="View distance in chunks (1-16)"),
+    view_distance: int = Query(4, ge=1, le=32, description="View distance in chunks (1-16)"),
     world_service: WorldService = Depends(get_world_service)
 ) -> APIResponse[dict]:
     """
@@ -97,13 +99,26 @@ async def get_viewport_render(
         chunks_with_blocks = 0
         
         # Load all chunks in viewport
+        # Load all chunks in viewport asynchronously
+        tasks = []
         for chunk_x in range(min_chunk_x, max_chunk_x + 1):
             for chunk_z in range(min_chunk_z, max_chunk_z + 1):
-                print(f"[DEBUG] Processing chunk ({chunk_x},{chunk_z})")
-                chunk_render_data = world_service._generate_render_data(chunk_x, chunk_z)
+                tasks.append(world_service.get_render_data_async(chunk_x, chunk_z))
+        
+        print(f"[DEBUG] Ensuring gathered tasks...")
+        results = await asyncio.gather(*tasks)
+        
+        # Process results
+        task_idx = 0
+        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
+            for chunk_z in range(min_chunk_z, max_chunk_z + 1):
+                chunk_render_data = results[task_idx]
+                task_idx += 1
                 
-                print(f"[DEBUG] Chunk ({chunk_x},{chunk_z}) returned {len(chunk_render_data.get('blocks', []))} blocks")
-                
+                # Verify data structure
+                if not chunk_render_data:
+                     continue
+
                 if chunk_render_data.get("blocks"):
                     chunks_data.append({
                         "chunk_x": chunk_x,
@@ -113,7 +128,8 @@ async def get_viewport_render(
                     })
                     
                     # Merge sprites
-                    all_sprites.update(chunk_render_data["sprites"])
+                    if "sprites" in chunk_render_data:
+                        all_sprites.update(chunk_render_data["sprites"])
                     
                     # Update viewport bounds only for first chunk with blocks
                     if chunks_with_blocks == 0:
@@ -129,8 +145,6 @@ async def get_viewport_render(
                     
                     chunks_with_blocks += 1
                     total_blocks += len(chunk_render_data["blocks"])
-                else:
-                    print(f"[DEBUG] Chunk ({chunk_x},{chunk_z}) has no blocks")
         
         print(f"[DEBUG] Found {chunks_with_blocks} chunks with blocks out of {(max_chunk_x - min_chunk_x + 1) * (max_chunk_z - min_chunk_z + 1)} total chunks")
         
