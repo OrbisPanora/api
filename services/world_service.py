@@ -337,69 +337,7 @@ class WorldService:
                 
                 print("min", min_value, "max", max_value) ## est ce quil faut prendre max valeu ou pas ??
 
-                # for z in range(16):
-                #     for x in range(16):
-                #         for y in range(min_value, max_value+1, 1): # 77 ... 89
-                #             # 89 ... 77 +1
-                #             try:
-                #                 # trouver un meilleur facon pour eviter de appeller block 2e fois
-                #                 block = chunk.get_block(x, y, z)
-                #             except:
-                #                 Matrix1D.append("0")
-                #                 continue
-
-                #             if block and block.name() not in AIR:
-                #                 Matrix1D.append(block.name().split(":")[1])
-                #             else:
-                #                 Matrix1D.append("0")
-
-                #         Matrix2D.append(Matrix1D)
-                #         Matrix1D=[]
-                #     Matrix3D.append(Matrix2D)
-                #     Matrix2D=[]
-
-                # print("la famu matrix",len(Matrix3D))
-                # print("la famu matrix", len(Matrix3D[0]))
-                # print("la famu matrix", len(Matrix3D[0][0]))
-                # # a mettre en place side
-                # #print(Matrix3D)
-                # side = 0
                 cpt = 0
-
-                # for z in range(len(Matrix3D)):
-                #     for x in range(len(Matrix3D[z])):
-                #         for y in range(min_value, max_value+1, 1):
-                #             y_index = y-min_value # peut etre verifier si out of range 77 -
-                #             #print("test0", y_index)
-                #             block = Matrix3D[z][x][y_index]
-                #             #print("test1", y_index)
-                #             if block != 0:
-                #                 for depth_y in range(y, max_value+1, 1): # 89 ... 77
-                #                     # 
-                #                     y_index = depth_y - min_value # peut etre verifier si out of range
-                #                     #print("test10", y_index)
-                #                     block = Matrix3D[z][x][y_index]
-                #                     #print("test20", y_index)
-                #                     if block != 0:
-                #                         global_x = global_biome_x + x
-                #                         global_z = global_biome_z + z
-                #                         # biome = self.world.get_biome(global_x, depth_y, global_z)
-
-                #                         
-                #                         j=abs(abs(global_z) - global_chunk_z)
-                #                         k=abs(abs(depth_y) - abs(min_value)) # height coeficient for render order
-
-                #                         x_final = 16 * (i - j)
-                #                         y_final = 8*(i+j) - 16*k
-                #                         x_final = round(x_final * 100) / 100
-                #                         y_final = round(y_final * 100) / 100
-
-                #                         #print("TEST")
-                #                         block_name = block.name().split(":")[1]
-                #                         isometric_blocks.append([block_name+".webp", x_final, y_final])
-                #                         cpt +=1
-                #                 break
-
                 
                 # second pass: select all blocks from max height and lowest surface
                 for z in range(16):
@@ -434,21 +372,12 @@ class WorldService:
                                                 # min = 79 h=77 -> -2
                                                 # 77 - 79 = -2
                                                 x_final = 16 * (global_x - global_z)
-                                                y_final = (8*(global_x+global_z) - 16*k)+(chunk_h-min_value)*16
+                                                y_final = (8*(global_x+global_z) - 16*k)-min_value*16 #+(depth_y*16) #+(chunk_h-min_value)*16
                                                 x_final = round(x_final * 100) / 100
                                                 y_final = round(y_final * 100) / 100
                                                 block_name = depth_block.name().split(":")[1]
                                                 isometric_blocks.append([block_name+".webp", x_final, y_final])
                                                 cpt +=1
-
-                                                # isometric_blocks.append({
-                                                #     "x": x_final,
-                                                #     "y": k,
-                                                #     "z": y_final,
-                                                #     "block": depth_block.name(),
-                                                #     "properties": {str(key): str(value) for key, value in depth_block.properties.items()},
-                                                #     "biome": biome.name() if biome else "unknown"
-                                                # })
                                         except:
                                             continue
                                     break
