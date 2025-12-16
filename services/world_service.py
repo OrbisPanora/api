@@ -93,7 +93,7 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
                         if block and block.name() not in AIR:
                             k = y
                             x_final = 16 * (global_x - global_z)
-                            y_final = 8 * (global_x + global_z) - 16 * k
+                            y_final = 8 * (global_x + global_z) - 16 * k -min_value*16
                             x_final = round(x_final * 100) / 100
                             y_final = round(y_final * 100) / 100
 
@@ -133,6 +133,113 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
         print(f"Worker error for chunk ({chunk_x}, {chunk_z}): {e}")
         # traceback.print_exc()
         return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
+
+def _worker_get_chunk_isometric(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
+    """
+    Worker function to get chunk data in isometric mode in a separate process.
+    This allows multiple chunk requests to run in parallel.
+    """
+    try:
+        # Check cache/Re-instantiate World for this process
+        global _worker_worlds
+        cache_key = (world_path, dimension)
+        
+        if cache_key not in _worker_worlds:
+            _worker_worlds[cache_key] = World(world_path, dimension=dimension)
+            
+        world = _worker_worlds[cache_key]
+        
+        chunk = world.get_chunk(chunk_x, chunk_z)
+        if chunk is None:
+            return None
+        
+        isometric_blocks = []
+        min_value = 320
+        max_value = -64
+
+        AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
+        INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
+                      'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
+                      'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
+                      'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 
+                      'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
+                      'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
+
+        global_biome_x = chunk_x * 16
+        global_biome_z = chunk_z * 16
+
+        # First pass: find lowest surface block and max height
+        for z in range(16):
+            for x in range(16):
+                for y in range(320, -65, -1):
+                    try:
+                        block = chunk.get_block(x, y, z)
+                        if block:
+                            if block.name() not in INVISIBLE:
+                                if y < min_value:
+                                    min_value = y
+                            if block.name() not in AIR:
+                                if y > max_value:
+                                    max_value = y
+                                break
+                    except:
+                        continue
+
+        if min_value > max_value:
+            return {
+                "chunk_x": chunk_x,
+                "chunk_z": chunk_z,
+                "heightmap": 0,
+                "surface_blocks": [],
+                "sections": None,
+                "palette": min_value
+            }
+
+        cpt = 0
+        
+        # Second pass: select all blocks from max height and lowest surface
+        for z in range(16):
+            for x in range(16):
+                for y in range(min_value, max_value + 1, 1):
+                    try:
+                        block = chunk.get_block(x, y, z)
+                        if block and block.name() not in AIR:
+                            for depth_y in range(y, max_value + 1, 1):
+                                try:
+                                    depth_block = chunk.get_block(x, depth_y, z)
+                                    if depth_block and depth_block.name() not in AIR:
+                                        global_x = global_biome_x + x
+                                        global_z = global_biome_z + z
+                                        k = abs(depth_y - min_value)
+                                        
+                                        x_final = 16 * (global_x - global_z)
+                                        y_final = (8 * (global_x + global_z) - 16 * k) - min_value * 16
+                                        x_final = round(x_final * 100) / 100
+                                        y_final = round(y_final * 100) / 100
+                                        block_name = depth_block.name().split(":")[1]
+                                        isometric_blocks.append([block_name + ".webp", x_final, y_final])
+                                        cpt += 1
+                                except:
+                                    continue
+                            break
+                    except:
+                        continue
+
+        return {
+            "chunk_x": chunk_x,
+            "chunk_z": chunk_z,
+            "heightmap": cpt,
+            "surface_blocks": isometric_blocks,
+            "sections": None,
+            "palette": min_value
+        }
+
+    except Exception as e:
+        print(f"Worker error for isometric chunk ({chunk_x}, {chunk_z}): {e}")
+        return None
+
+
 import concurrent.futures
 import asyncio
 import time
@@ -550,10 +657,10 @@ class WorldService:
                 INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
                               'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
                               'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-                              'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
+                              'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 
                               'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
                               'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
-                # TODO: ajouter vine, staires, grass, flowers, etc
+                # , 'minecraft:water' a remtrer peut etre plus tard
 
                 global_biome_x = chunk_x * 16
                 global_biome_z = chunk_z * 16
@@ -684,6 +791,55 @@ class WorldService:
         except Exception as e:
             print(f"Async render generation failed: {e}")
             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
+    async def get_chunk_data_async(self, chunk_x: int, chunk_z: int, chunk_h: int = 0, mode: str = 'isometric'):
+        """
+        Get chunk data asynchronously using process pool.
+        This allows multiple chunk requests to run in parallel instead of waiting for each other.
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_z: Chunk Z coordinate
+            chunk_h: Height parameter
+            mode: Data format (currently only 'isometric' is optimized for async)
+        
+        Returns:
+            ChunkDataResponse object or None if chunk not found
+        """
+        if mode != "isometric":
+            # For other modes, fall back to synchronous version
+            return self.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
+        
+        if not self.world_path:
+            return None
+            
+        loop = asyncio.get_event_loop()
+        dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
+        
+        try:
+            result = await loop.run_in_executor(
+                self._executor,
+                _worker_get_chunk_isometric,
+                self.world_path,
+                dimension,
+                chunk_x,
+                chunk_z
+            )
+            
+            if result is None:
+                return None
+            
+            return ChunkDataResponse(
+                chunk_x=result["chunk_x"],
+                chunk_z=result["chunk_z"],
+                heightmap=result["heightmap"],
+                surface_blocks=result["surface_blocks"],
+                sections=result["sections"],
+                palette=result["palette"]
+            )
+        except Exception as e:
+            print(f"Async chunk data generation failed: {e}")
+            return None
 
     def _generate_render_data(self, chunk_x: int, chunk_z: int) -> dict:
         """

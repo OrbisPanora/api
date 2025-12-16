@@ -380,12 +380,22 @@ async def get_chunk(
     - Blocks sorted back-to-front for correct rendering
     - Bounds calculated for viewport culling
     - Ready for immediate display without client-side calculations
+    
+    **Performance:**
+    - Uses async processing with thread pool for 'isometric' mode
+    - Multiple concurrent requests are processed in parallel
+    - No waiting for previous requests to complete
     """
     try:
         if not world_service.is_loaded():
             raise WorldNotLoadedError()
         
-        chunk_data = world_service.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
+        # Use async version for isometric mode (most commonly used)
+        # This allows multiple requests to run in parallel
+        if mode == "isometric":
+            chunk_data = await world_service.get_chunk_data_async(chunk_x, chunk_z, chunk_h, mode)
+        else:
+            chunk_data = world_service.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
         
         if chunk_data is None:
             raise HTTPException(
