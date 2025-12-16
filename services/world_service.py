@@ -30,7 +30,7 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
         cache_key = (world_path, dimension)
         
         if cache_key not in _worker_worlds:
-            # print(f"[WORKER {os.getpid()}] Initializing World for {cache_key}")
+
             _worker_worlds[cache_key] = World(world_path, dimension=dimension)
             
         world = _worker_worlds[cache_key]
@@ -132,7 +132,7 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
 
     except Exception as e:
         print(f"Worker error for chunk ({chunk_x}, {chunk_z}): {e}")
-        # traceback.print_exc()
+
         return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
 
@@ -429,9 +429,7 @@ class WorldService:
     
     def __init__(self):
         """Initialize world service."""
-        # Temporarily skip world loading to test API connectivity
-        # if self._world is None:
-        #     self._load_world()
+        # Initialize executor for async tasks
         if self._executor is None:
             self._executor = concurrent.futures.ProcessPoolExecutor(max_workers=8)
         pass
@@ -703,8 +701,7 @@ class WorldService:
                     palette=None
                 )
             
-            # changais par simoni
-            # pour afficher un chunk a la fois
+            # Isometric mode: optimized block extraction for 2.5D view
             elif mode == "isometric":
                 isometric_blocks = []
                 min_value = 320
