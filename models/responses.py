@@ -52,11 +52,11 @@ class ChunkDataResponse(BaseModel):
     
     chunk_x: int = Field(..., description="Chunk X coordinate")
     chunk_z: int = Field(..., description="Chunk Z coordinate")
-    heightmap: Optional[List[List[int]]] = Field(None, description="16x16 heightmap array")
-    surface_blocks: Optional[List[dict]] = Field(None, description="Surface blocks with biomes (surface mode) or isometric blocks with depth info (isometric mode)")
+    heightmap: Optional[List[List[int]]|int] = Field(None, description="16x16 heightmap array")
+    surface_blocks: Optional[List[dict]|List[List]] = Field(None, description="Surface blocks with biomes (surface mode) or isometric blocks with depth info (isometric mode)")
     render_data: Optional[dict] = Field(None, description="Pre-calculated render data for optimized 2D display (render mode)")
     sections: Optional[List[dict]] = Field(None, description="Chunk sections (simplified/full mode)")
-    palette: Optional[List[str]] = Field(None, description="Block palette (simplified/full mode)")
+    palette: Optional[List[str]|int] = Field(None, description="Block palette (simplified/full mode)")
     
     class Config:
         json_schema_extra = {
@@ -159,5 +159,24 @@ class BiomeDataResponse(BaseModel):
                 "biome_y": 0,
                 "biome_z": 0,
                 "id": "plains"
+            }
+        }
+
+class BlockJsonDataResponse(BaseModel):
+    """ Json's block data response for isometric's request. """
+
+    block_name: str = Field(..., description="Block's name")
+    resources: dict = Field(..., description="resources for isometric's requests") 
+    type: str = Field(..., description="variant's type or multipart's type") 
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "block_name": "diamond_block",
+                "resources": {
+                    "top": "diamond_block_top.webp",
+                    "left": "diamond_block_left.webp"
+                },
+                "type": "variants"
             }
         }

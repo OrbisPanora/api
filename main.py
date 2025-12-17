@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from config import settings, validate_settings
-from routers import world_router, chunk_router, block_router, biome_router, upload_router, isometric_router
+from routers import world_router, chunk_router, block_router, biome_router, upload_router, resource_router, isometric_router
 from services import get_world_service
 from services.cache_service import init_cache_service, get_cache_service
 from middleware import RateLimitMiddleware, GZipMiddleware
@@ -110,6 +110,7 @@ app.include_router(chunk_router)
 app.include_router(block_router)
 app.include_router(biome_router)
 app.include_router(upload_router)
+app.include_router(resource_router)
 app.include_router(isometric_router)
 
 
@@ -129,7 +130,7 @@ async def root():
                 "health": "/api/worlds/health"
             },
             "chunks": {
-                "get_chunk": "/api/chunks/{chunk_x}/{chunk_z}?mode=heightmap",
+                "get_chunk": "/api/chunks/{chunk_x}/{chunk_z}/{chunk_h}?mode=heightmap",
                 "area_heightmap": "/api/chunks/area/heightmap?x1=0&z1=0&x2=100&z2=100",
                 "tile": "/api/chunks/tile/{tile_x}/{tile_z}?size=16",
                 "viewport_render": "/api/chunks/viewport/render?center_x=0&center_z=0&view_distance=4"
@@ -140,11 +141,26 @@ async def root():
             "upload": {
                 "world": "/api/upload/world (POST multipart/form-data)"
             },
+            "resources": {
+                "images": "/api/resources/images/{image}",
+                "json": "/api/resources/json?id=diamond_block?namespace=minecraft?properties={}"
+            }
         }
     }
 
 
-# Global exception handler removed to allow FastAPI's default exception handling
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Handle all uncaught exceptions."""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "error": str(exc),
+            "detail": "Internal server error"
+        }
+    )
 
 
 if __name__ == "__main__":

@@ -40,3 +40,9 @@ class InvalidParameterError(APIError):
     
     def __init__(self, message: str):
         super().__init__(message, status_code=status.HTTP_400_BAD_REQUEST)
+
+class InvalidBlockProperties(APIError):
+    """ Raised when properties are invalid"""
+
+    def __init__(self, message: str):
+        super().__init__(message, status_code=status.HTTP_400_BAD_REQUEST)
