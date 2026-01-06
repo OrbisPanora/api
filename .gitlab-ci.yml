@@ -82,8 +82,8 @@ deploy-api:
         NAMESPACE_TOKEN: $KUBE_NAMESPACE_TOKEN
         NAMESPACE_NAME: iut-inf63-projets-etudiants-orbispanora
         CONTAINER_HTTP_PORT: 8000
-        CONTAINER_RAM: 800m
-        CONTAINER_CPU: 150m
+        CONTAINER_RAM: 800M
+        CONTAINER_CPU: 240m
     only:
       - main
     when: on_success
