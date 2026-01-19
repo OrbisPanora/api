@@ -2,6 +2,19 @@
 
 FastAPI backend for the OrbisPanora isometric Minecraft world viewer.
 
+## 🔧 Setup
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run development server
+python run.py
+```
+
+---
+
+
 ## 📋 Features to Implement
 
 ### **1. Configuration & Infrastructure**
@@ -195,25 +208,6 @@ api/
     ├── test_world.py
     ├── test_chunk.py
     └── test_tile.py
-```
-
----
-
-## 🔧 Setup
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variables
-export WORLD_PATH="/path/to/minecraft/world"
-export API_PORT=8000
-
-# Run development server
-uvicorn main:app --reload --port 8000
-
-# Run with production settings
-uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 ---
