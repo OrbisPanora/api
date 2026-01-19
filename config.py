@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     rate_limit_window: int = 60    
     
     # Upload Configuration
-    upload_max_size_mb: int = 100  # Maximum upload size in MB
+    upload_max_size_mb: int = 500  # Maximum upload size in MB
     upload_allowed_extensions: str = ".zip"  # Allowed file extensions
     temp_world_dir: str = "./temp_worlds"  # Directory for extracted worlds
     
