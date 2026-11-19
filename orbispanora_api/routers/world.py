@@ -4,11 +4,11 @@ Provides information about the Minecraft world.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from datetime import datetime
+from datetime import UTC, datetime
 
-from models.responses import APIResponse, WorldInfoResponse
-from services.world_service import WorldService, get_world_service
-from utils.errors import WorldNotLoadedError
+from ..models.responses import APIResponse, WorldInfoResponse
+from ..services.world_service import WorldService, get_world_service
+from ..utils.errors import WorldNotLoadedError
 
 
 router = APIRouter(
@@ -50,7 +50,7 @@ async def get_current_world(
         return APIResponse(
             status="success",
             data=world_info,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
     
     except WorldNotLoadedError:
@@ -128,5 +128,5 @@ async def health_check(
     return {
         "status": "healthy" if is_loaded else "unhealthy",
         "world_loaded": is_loaded,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(UTC).isoformat()
     }

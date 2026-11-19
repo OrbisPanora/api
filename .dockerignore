@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.git/
+.env.local
+temp_worlds/
+.pytest_cache/
+tests/

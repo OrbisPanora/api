@@ -5,7 +5,7 @@ Standardized response format for all endpoints.
 
 from pydantic import BaseModel, Field
 from typing import Any, Optional, List, TypeVar, Generic
-from datetime import datetime
+from datetime import UTC, datetime
 
 TResponse = TypeVar("TResponseData")
 
@@ -15,7 +15,7 @@ class APIResponse(BaseModel, Generic[TResponse]):
     status: str = Field(..., description="Response status: 'success' or 'error'")
     data: Optional[TResponse] = Field(None, description="Response data")
     error: Optional[str] = Field(None, description="Error message if status is 'error'")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Response timestamp")
     
 
 

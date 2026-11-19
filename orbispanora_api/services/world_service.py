@@ -4,9 +4,9 @@ Singleton pattern to ensure only one World instance is loaded.
 """
 
 from typing import Optional
-from models.responses import WorldInfoResponse, ChunkDataResponse, AreaHeightmapResponse, TileDataResponse, BlockDataResponse, BiomeDataResponse
+from ..models.responses import WorldInfoResponse, ChunkDataResponse, AreaHeightmapResponse, TileDataResponse, BlockDataResponse, BiomeDataResponse
 from anvil import World
-from config import settings
+from ..settings import get_settings
 import os
 import zipfile
 import tempfile
@@ -433,16 +433,26 @@ class WorldService:
         if self._executor is None:
             self._executor = concurrent.futures.ProcessPoolExecutor(max_workers=8)
         pass
+
+    def shutdown(self):
+        """Stop the worker processes. Called when the application shuts down."""
+        if self._executor is not None:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor = None
     
     def _load_world(self):
         """Load the Minecraft world."""
         try:
-            print(f"Loading world from: {settings.world_path}")
+            configured = get_settings().world_path
+            if configured is None:
+                raise ValueError("No world configured. Set ORBISPANORA_WORLD_PATH or upload a world.")
+            world_path = str(configured)
+            print(f"Loading world from: {world_path}")
             self._world = World(
-                settings.world_path,
-                dimension=settings.world_dimension
+                world_path,
+                dimension=get_settings().world_dimension
             )
-            self._world_path = settings.world_path
+            self._world_path = world_path
             print(f"World loaded successfully")
         except Exception as e:
             print(f"Failed to load world: {e}")
@@ -466,11 +476,11 @@ class WorldService:
         
         Args:
             world_path: Path to the world directory
-            dimension: Dimension to load (defaults to settings.world_dimension)
+            dimension: Dimension to load (defaults to get_settings().world_dimension)
         """
         try:
             if dimension is None:
-                dimension = settings.world_dimension
+                dimension = get_settings().world_dimension
             
             print(f"Loading world from: {world_path} (dimension: {dimension})")
             self._world = World(
@@ -490,7 +500,7 @@ class WorldService:
         
         Args:
             zip_path: Path to the zip file
-            dimension: Dimension to load (defaults to settings.world_dimension)
+            dimension: Dimension to load (defaults to get_settings().world_dimension)
         
         Returns:
             Path to the extracted world directory
@@ -502,13 +512,13 @@ class WorldService:
             
             # Check file size
             file_size = os.path.getsize(zip_path)
-            max_size = settings.upload_max_size_mb * 1024 * 1024
+            max_size = get_settings().upload_max_size_mb * 1024 * 1024
             if file_size > max_size:
                 raise ValueError(f"Zip file too large ({file_size} bytes). Maximum allowed: {max_size} bytes")
             
             # Create temp directory for extraction
-            os.makedirs(settings.temp_world_dir, exist_ok=True)
-            temp_dir = tempfile.mkdtemp(dir=settings.temp_world_dir)
+            os.makedirs(get_settings().temp_world_dir, exist_ok=True)
+            temp_dir = tempfile.mkdtemp(dir=get_settings().temp_world_dir)
             
             print(f"Extracting world from {zip_path} to {temp_dir}")
             
@@ -527,7 +537,7 @@ class WorldService:
             self.load_world_from_path(world_dir, dimension)
             
             # Clean up old temp worlds if needed
-            if settings.cleanup_temp_files:
+            if get_settings().cleanup_temp_files:
                 self._cleanup_old_temp_worlds()
             
             return world_dir
@@ -560,20 +570,20 @@ class WorldService:
     def _cleanup_old_temp_worlds(self):
         """Clean up old temporary world directories."""
         try:
-            if not os.path.exists(settings.temp_world_dir):
+            if not os.path.exists(get_settings().temp_world_dir):
                 return
                 
-            temp_dirs = [d for d in os.listdir(settings.temp_world_dir) 
-                        if os.path.isdir(os.path.join(settings.temp_world_dir, d))]
+            temp_dirs = [d for d in os.listdir(get_settings().temp_world_dir) 
+                        if os.path.isdir(os.path.join(get_settings().temp_world_dir, d))]
             
-            if len(temp_dirs) > settings.max_temp_worlds:
+            if len(temp_dirs) > get_settings().max_temp_worlds:
                 # Sort by modification time (oldest first)
-                temp_dirs.sort(key=lambda d: os.path.getmtime(os.path.join(settings.temp_world_dir, d)))
+                temp_dirs.sort(key=lambda d: os.path.getmtime(os.path.join(get_settings().temp_world_dir, d)))
                 
                 # Remove oldest directories
-                dirs_to_remove = temp_dirs[:-settings.max_temp_worlds]
+                dirs_to_remove = temp_dirs[:-get_settings().max_temp_worlds]
                 for dir_name in dirs_to_remove:
-                    dir_path = os.path.join(settings.temp_world_dir, dir_name)
+                    dir_path = os.path.join(get_settings().temp_world_dir, dir_name)
                     print(f"Cleaning up old temp world: {dir_path}")
                     shutil.rmtree(dir_path, ignore_errors=True)
                     

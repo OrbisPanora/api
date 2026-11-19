@@ -1,0 +1,55 @@
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "orbispanora-api"
+version = "1.0.0"
+description = "FastAPI backend for the OrbisPanora isometric Minecraft world viewer."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162",
+    "uvicorn[standard]>=0.54",
+    "numpy>=2.5",
+    "pydantic>=2.14",
+    "pydantic-settings>=2.16",
+    "python-dotenv>=1.2",
+    "requests>=2.34",
+    "python-multipart>=0.0.33",
+    "pillow>=13.0",
+    "orbispanora-lib",
+    "typer>=0.27",
+]
+
+[project.scripts]
+orbispanora = "orbispanora_api.cli:app"
+
+[project.optional-dependencies]
+redis = ["redis>=7"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2",
+    "httpx>=0.28",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.build-backend]
+module-name = "orbispanora_api"
+module-root = ""
+
+[tool.uv.sources]
+# Wheel built from ../lib (see README, "Updating the library wheel").
+orbispanora-lib = { path = "orbispanora_lib-1.0.0-py3-none-any.whl" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+log_cli = true
+log_cli_level = "DEBUG"
+log_cli_format = "%(levelname)8s %(message)s"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

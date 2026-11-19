@@ -8,11 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
-from config import settings, validate_settings
-from routers import world_router, chunk_router, block_router, biome_router, upload_router, resource_router, isometric_router
-from services import get_world_service
-from services.cache_service import init_cache_service, get_cache_service
-from middleware import RateLimitMiddleware, GZipMiddleware
+from .settings import APP_DESCRIPTION, APP_TITLE, APP_VERSION, get_settings
+from .routers import world_router, chunk_router, block_router, biome_router, upload_router, resource_router, isometric_router
+from .services import get_world_service
+from .routers.isometric import shutdown_isometric_service
+from .services.cache_service import init_cache_service
+from .middleware import RateLimitMiddleware, GZipMiddleware
 
 
 @asynccontextmanager
@@ -26,24 +27,27 @@ async def lifespan(app: FastAPI):
     print("="*60)
     
     try:
-        validate_settings()
-        
+        for level, message in get_settings().problems():
+            print(f"[{level.upper()}] {message}")
+            if level == "error":
+                raise ValueError(message)
+
         # Initialize cache service
-        if settings.cache_enabled:
+        if get_settings().cache_enabled:
             ttl_config = {
-                "heightmap": settings.cache_ttl_heightmap,
-                "surface": settings.cache_ttl_surface,
-                "chunk": settings.cache_ttl_chunk
+                "heightmap": get_settings().cache_ttl_heightmap,
+                "surface": get_settings().cache_ttl_surface,
+                "chunk": get_settings().cache_ttl_chunk
             }
             cache_service = init_cache_service(
-                settings.cache_type,
-                settings.redis_url,
+                get_settings().cache_type,
+                get_settings().redis_url.get_secret_value(),
                 ttl_config
             )
-            print(f"Cache service initialized ({settings.cache_type})")
-            print(f"  - Heightmap TTL: {settings.cache_ttl_heightmap}s")
-            print(f"  - Surface TTL: {settings.cache_ttl_surface}s")
-            print(f"  - Chunk TTL: {settings.cache_ttl_chunk}s")
+            print(f"Cache service initialized ({get_settings().cache_type})")
+            print(f"  - Heightmap TTL: {get_settings().cache_ttl_heightmap}s")
+            print(f"  - Surface TTL: {get_settings().cache_ttl_surface}s")
+            print(f"  - Chunk TTL: {get_settings().cache_ttl_chunk}s")
         else:
             print("Cache disabled")
         
@@ -54,8 +58,8 @@ async def lifespan(app: FastAPI):
         raise
     
     print("="*60)
-    print(f"API ready at http://{settings.api_host}:{settings.api_port}")
-    print(f"Docs available at http://{settings.api_host}:{settings.api_port}/docs")
+    print(f"API ready at http://{get_settings().host}:{get_settings().port}")
+    print(f"Docs available at http://{get_settings().host}:{get_settings().port}/docs")
     print("="*60 + "\n")
     
     yield
@@ -65,12 +69,15 @@ async def lifespan(app: FastAPI):
     print("Shutting down OrbisPanora API")
     print("="*60 + "\n")
 
+    get_world_service().shutdown()
+    shutdown_isometric_service()
+
 
 # Create FastAPI application
 app = FastAPI(
-    title=settings.api_title,
-    description=settings.api_description,
-    version=settings.api_version,
+    title=APP_TITLE,
+    description=APP_DESCRIPTION,
+    version=APP_VERSION,
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc"
@@ -79,25 +86,26 @@ app = FastAPI(
 
 # Configure middlewares
 # 1. Compression (first, to compress all responses)
-if settings.compression_enabled:
+if get_settings().compression_enabled:
     app.add_middleware(
         GZipMiddleware,
-        minimum_size=settings.compression_min_size
+        minimum_size=get_settings().compression_min_size
     )
 
 # 2. Rate Limiting
 app.add_middleware(
     RateLimitMiddleware,
-    requests=settings.rate_limit_requests,
-    window=settings.rate_limit_window,
-    enabled=settings.rate_limit_enabled
+    requests=get_settings().rate_limit_requests,
+    window=get_settings().rate_limit_window,
+    enabled=get_settings().rate_limit_enabled
 )
 
 # 3. CORS (last, to handle CORS for all responses)
-print(f"CORS origins configured: {settings.cors_origins_list}")
+_cors_origins = get_settings().cors_origins
+print(f"CORS origins configured: {_cors_origins}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=["*"] if "*" in _cors_origins else _cors_origins,
     allow_credentials=False,  # Must be False when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
@@ -119,9 +127,9 @@ app.include_router(isometric_router)
 async def root():
     """Root endpoint with API information."""
     return {
-        "name": settings.api_title,
-        "version": settings.api_version,
-        "description": settings.api_description,
+        "name": APP_TITLE,
+        "version": APP_VERSION,
+        "description": APP_DESCRIPTION,
         "docs": "/docs",
         "redoc": "/redoc",
         "resources": {
@@ -160,16 +168,4 @@ async def global_exception_handler(request, exc):
             "error": str(exc),
             "detail": "Internal server error"
         }
-    )
-
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    uvicorn.run(
-        "main:app",
-        host=settings.api_host,
-        port=settings.api_port,
-        reload=settings.api_reload,
-        log_level=settings.log_level.lower()
     )

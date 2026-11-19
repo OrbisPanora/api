@@ -18,7 +18,7 @@ class TestChunkEndpoints:
     # ==================== CONTENT TYPE TESTS ====================
     def test_endpoints_return_json(self):
         """Test endpoints return application/json content type."""
-        endpoints = ["/0/0", "/current"]
+        endpoints = ["/0/0/0", "/current"]
         
         for endpoint in endpoints:
             response = requests.get(f"{BASE_URL}{endpoint}")
@@ -27,13 +27,14 @@ class TestChunkEndpoints:
             assert "application/json" in content_type.lower(), \
                 f"Endpoint {endpoint} should return JSON, got: {content_type}"
     # ==================== SUCCESSFUL RESPONSE TESTS ====================
-    """Endpoint {chunk_x}/{chunk_z}"""
+    """Endpoint {chunk_x}/{chunk_z}/{chunk_h}"""
     def test_get_chunk_endpoint_mode_heightmap(self):
         """Test /chunk endpoint returns valid response for given coordinates."""
         x = 0
         z = 0
+        h = 0
         params = {"mode": "heightmap"}
-        response = requests.get(f"{BASE_URL}/{x}/{z}", params=params)
+        response = requests.get(f"{BASE_URL}/{x}/{z}/{h}", params=params)
 
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")
@@ -59,8 +60,9 @@ class TestChunkEndpoints:
         """Test /chunk endpoint returns valid response for given coordinates."""
         x = 0
         z = 0
+        h = 0
         params = {"mode": "surface"}
-        response = requests.get(f"{BASE_URL}/{x}/{z}", params=params)
+        response = requests.get(f"{BASE_URL}/{x}/{z}/{h}", params=params)
 
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")
@@ -86,8 +88,9 @@ class TestChunkEndpoints:
         """Test /chunk endpoint returns valid response for given coordinates."""
         x = 0
         z = 0
+        h = 0
         params = {"mode": "isometric"}
-        response = requests.get(f"{BASE_URL}/{x}/{z}", params=params)
+        response = requests.get(f"{BASE_URL}/{x}/{z}/{h}", params=params)
 
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")
@@ -112,8 +115,9 @@ class TestChunkEndpoints:
         """Test /chunk endpoint returns valid response for given coordinates."""
         x = 0
         z = 0
+        h = 0
         params = {"mode": "render"}
-        response = requests.get(f"{BASE_URL}/{x}/{z}", params=params)
+        response = requests.get(f"{BASE_URL}/{x}/{z}/{h}", params=params)
 
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")
@@ -137,14 +141,15 @@ class TestChunkEndpoints:
         assert chunk_data["surface_blocks"] is None, "'data' should not contain 'heightmap' key"
 
     # ==================== ERROR HANDLING TESTS ====================
-    """Endpoint {chunk_x}/{chunk_z}"""
+    """Endpoint {chunk_x}/{chunk_z}/{chunk_h}"""
 
     def test_get_chunk_endpoint_mode_invalid(self):
         """Test /chunk endpoint returns valid resonse for invalid mode"""
         x = 0
         z = 0
+        h = 0
         params = {"mode": "invalid_mode"}
-        response = requests.get(f"{BASE_URL}/{x}/{z}", params=params)
+        response = requests.get(f"{BASE_URL}/{x}/{z}/{h}", params=params)
 
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")
@@ -157,8 +162,9 @@ class TestChunkEndpoints:
         """Test chunk valid chunks coordinates."""
         x = 100
         z = 100
+        h = 0
         params = {"mode": "heightmap"}
-        response = requests.get(f"{BASE_URL}/{x}/{z}", params=params)
+        response = requests.get(f"{BASE_URL}/{x}/{z}/{h}", params=params)
 
         if response.status_code == 503:
             pytest.skip("World is not loaded - cannot test loaded state")
@@ -169,8 +175,9 @@ class TestChunkEndpoints:
         """Test /chunk endpoint when no world is loaded - expect 503."""
         x = 0
         z = 0
+        h = 0
         params = {"mode": "heightmap"}
-        response = requests.get(f"{api_without_world}/api/chunks/{x}/{z}", params=params)
+        response = requests.get(f"{api_without_world}/api/chunks/{x}/{z}/{h}", params=params)
 
         LOGGER.debug(f"Request params: {params}")
         LOGGER.debug(f"Request URL: {response.url}")

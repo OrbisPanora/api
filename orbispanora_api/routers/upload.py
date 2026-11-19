@@ -5,7 +5,7 @@ Supports chunked upload for large files.
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
-from datetime import datetime
+from datetime import UTC, datetime
 import os
 import tempfile
 import uuid
@@ -13,9 +13,9 @@ import shutil
 from typing import Dict
 from pydantic import BaseModel
 
-from models.responses import APIResponse, WorldInfoResponse
-from services.world_service import WorldService, get_world_service
-from config import settings
+from ..models.responses import APIResponse, WorldInfoResponse
+from ..services.world_service import WorldService, get_world_service
+from ..settings import get_settings
 
 router = APIRouter(
     prefix="/api/upload",
@@ -98,7 +98,7 @@ async def init_chunked_upload(
         "dimension": dimension,
         "received_chunks": set(),
         "upload_dir": upload_dir,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now(UTC)
     }
     
     # Recommended chunk size (5MB)
@@ -111,7 +111,7 @@ async def init_chunked_upload(
             chunk_size=chunk_size,
             message=f"Upload initialized. Send {total_chunks} chunks."
         ),
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(UTC)
     )
 
 
@@ -175,7 +175,7 @@ async def upload_chunk(
             total_chunks=upload_info["total_chunks"],
             is_complete=is_complete
         ),
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(UTC)
     )
 
 
@@ -230,7 +230,7 @@ async def finalize_chunked_upload(
         return APIResponse(
             status="success",
             data=world_info,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
     
     except Exception as e:
@@ -275,7 +275,7 @@ async def cancel_chunked_upload(upload_id: str):
     return APIResponse(
         status="success",
         data={"message": "Upload cancelled"},
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(UTC)
     )
 
 
@@ -362,7 +362,7 @@ async def upload_world(
             return APIResponse(
                 status="success",
                 data=world_info,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(UTC)
             )
 
         finally:

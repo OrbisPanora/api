@@ -3,16 +3,16 @@ Chunk endpoints for the API.
 Provides chunk data in various formats for the isometric viewer.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 import asyncio
 
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from models.responses import APIResponse, ChunkDataResponse, AreaHeightmapResponse, TileDataResponse
-from services.world_service import WorldService, get_world_service
-from utils.errors import WorldNotLoadedError
+from ..models.responses import APIResponse, ChunkDataResponse, AreaHeightmapResponse, TileDataResponse
+from ..services.world_service import WorldService, get_world_service
+from ..utils.errors import WorldNotLoadedError
 
 
 router = APIRouter(
@@ -179,7 +179,7 @@ async def get_viewport_render(
             response = APIResponse(
                 status="success",
                 data=viewport_data,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(UTC)
             )
             print("[DEBUG] APIResponse validation successful")
             return response
@@ -197,7 +197,7 @@ async def get_viewport_render(
                     "viewport_bounds": {"min_x": 0, "max_x": 100, "min_y": 0, "max_y": 100},
                     "stats": {"total_chunks": 0, "total_blocks": 0, "load_time_ms": processing_time, "avg_blocks_per_chunk": 0}
                 },
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(UTC)
             )
         
     except WorldNotLoadedError:
@@ -334,7 +334,7 @@ def generate_test_viewport_data(center_x: int, center_z: int, view_distance: int
     return APIResponse(
         status="success",
         data=viewport_data,
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(UTC)
     )
 
 
@@ -406,7 +406,7 @@ async def get_chunk(
         return APIResponse(
             status="success",
             data=chunk_data,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
     
     except WorldNotLoadedError:
@@ -484,7 +484,7 @@ async def get_area_heightmap(
         return APIResponse(
             status="success",
             data=area_data,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
     
     except WorldNotLoadedError:
@@ -548,7 +548,7 @@ async def get_tile(
         return APIResponse(
             status="success",
             data=tile_data,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
     
     except WorldNotLoadedError:

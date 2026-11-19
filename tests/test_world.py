@@ -6,7 +6,7 @@ import time
 import logging
 import requests
 import pytest
-from datetime import datetime
+from datetime import UTC, datetime
 from utilities.mock_api import api_available, api_without_world
 
 LOGGER = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class TestWorldEndpoints:
         
         # Parse timestamp and verify it's recent (within last 5 seconds)
         timestamp = datetime.fromisoformat(data["timestamp"].replace('Z', '+00:00'))
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         time_diff = abs((now - timestamp).total_seconds())
         
         assert time_diff < 5, f"Timestamp is too old: {time_diff}s"

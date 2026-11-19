@@ -38,12 +38,11 @@ def api_without_world():
     
     # Start API on different port without world
     env = os.environ.copy()
-    env["API_PORT"] = "8002"  # Different port
-    env["WORLD_PATH"] = ""     # No world
+    env["ORBISPANORA_WORLD_PATH"] = ""     # No world
     env["PYTHONUNBUFFERED"] = "1"
     
     process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", 
+        [sys.executable, "-m", "uvicorn", "orbispanora_api.main:app", "--host", "127.0.0.1", 
         "--port", "8002", "--log-level", "error"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

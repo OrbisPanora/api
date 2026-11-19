@@ -14,8 +14,8 @@ from typing import Dict, List, Optional, Tuple, Any, NamedTuple
 from concurrent.futures import ProcessPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from models.responses import APIResponse
-from services.world_service import WorldService, get_world_service
+from ..models.responses import APIResponse
+from ..services.world_service import WorldService, get_world_service
 from anvil import World
 
 try:
@@ -249,6 +249,10 @@ class IsometricService:
         self._cache_lock = asyncio.Lock()
         self._stats = {"cache_hits": 0, "cache_misses": 0, "chunks_processed": 0, "blocks_found": 0}
 
+    def shutdown(self):
+        """Stop the worker processes. Called when the application shuts down."""
+        self.executor.shutdown(wait=True, cancel_futures=True)
+
     async def get_all_blocks(
         self,
         world_service: WorldService,
@@ -384,6 +388,14 @@ def get_isometric_service():
     if _service is None:
         _service = IsometricService()
     return _service
+
+
+def shutdown_isometric_service():
+    """Stop the isometric service's worker processes, if the service was created."""
+    global _service
+    if _service is not None:
+        _service.shutdown()
+        _service = None
 
 
 # === ROUTER ===

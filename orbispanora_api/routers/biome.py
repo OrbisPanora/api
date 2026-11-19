@@ -4,12 +4,12 @@ Provides biom data in various formats for the isometric viewer.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from models.responses import APIResponse, BiomeDataResponse
-from services.world_service import WorldService, get_world_service
-from utils.errors import WorldNotLoadedError
+from ..models.responses import APIResponse, BiomeDataResponse
+from ..services.world_service import WorldService, get_world_service
+from ..utils.errors import WorldNotLoadedError
 
 router = APIRouter(
     prefix="/api/biomes",
@@ -55,7 +55,7 @@ async def get_biome(
         return APIResponse(
             status="success",
             data=biome_data,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
     
     except WorldNotLoadedError:

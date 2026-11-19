@@ -1,237 +1,174 @@
 # OrbisPanora API
 
-FastAPI backend for the OrbisPanora isometric Minecraft world viewer.
+FastAPI backend for the OrbisPanora isometric Minecraft world viewer. It reads
+Minecraft Anvil worlds with the `orbispanora-lib` library (`../lib`) and returns
+JSON that the Angular viewer (`../web`) draws.
 
-## 🔧 Setup
+Target Minecraft version: 1.21.1.
+
+## Requirements
+
+- [uv](https://docs.astral.sh/uv/). Python 3.12 or newer is required; `.python-version`
+  pins 3.14, which uv downloads if it is missing. The Dockerfile uses `python:3.14-slim`.
+- The library wheel `orbispanora_lib-1.0.0-py3-none-any.whl` in this directory.
+  It is built from `../lib` (see [Updating the library wheel](#updating-the-library-wheel)).
+
+## Setup
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run development server
-python run.py
+uv sync                      # creates .venv from uv.lock (includes the dev group)
+# optional: create .env.local with per-machine settings, see Configuration
+uv run orbispanora run
 ```
 
----
+The server listens on `ORBISPANORA_HOST:ORBISPANORA_PORT` (default `127.0.0.1:8000`).
+Interactive documentation is at `/docs` (Swagger UI) and `/redoc`.
 
+Dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
+Add one with `uv add <package>`. The optional Redis cache is installed with
+`uv sync --extra redis`.
 
-## 📋 Features to Implement
+## Command line
 
-### **1. Configuration & Infrastructure**
-- **FastAPI base structure** (main.py, routers, models, config)
-- **CORS** for Angular frontend
-- **Minecraft world connection management** (singleton World instance)
-- **Environment variables** (world path, port, etc.)
-- **Structured logging**
+`uv sync` installs the `orbispanora` command (`uv run orbispanora ...`, or
+`orbispanora ...` with the virtual environment active).
 
-### **2. Main Endpoints**
+| Command | Purpose |
+|---|---|
+| `orbispanora run` | Serve the API. Options: `--host`, `--port`, `--reload`, `--root-path`, `--world-path`, `--dimension`, `--log-level`. |
+| `orbispanora config show` | Print every setting with its effective value. Secrets are masked; `--reveal` prints them. |
+| `orbispanora config check` | Validate the configuration. Exits with status 1 if the server could not start. |
+| `orbispanora world check PATH` | Summarise a world folder's region files (count, region and block bounds, size). Only lists files; it does not open them and creates nothing. |
+| `orbispanora --version` | Print the version. |
 
-#### **A. World Metadata**
-```
-GET /api/world/info
-```
-- Returns: dimension, bounds, loaded regions, cache stats
-- Uses: `world.get_world_info()`
+`run` validates the settings first and prints a one-line error, not a traceback.
+An option given on the command line wins over the environment and the `.env` files.
 
-#### **B. Chunk Data** (PRIORITY for viewer)
-```
-GET /api/chunk/{chunk_x}/{chunk_z}?mode=heightmap
-```
-- Modes: `heightmap`, `surface`, `simplified`, `full`
-- Uses: `world.get_chunk_data(cx, cz, mode)`
-- **Heightmap**: ~1KB (minimap, initial load)
-- **Surface**: ~10-50KB (isometric rendering)
+## Configuration
 
-#### **C. Area Heightmap**
-```
-GET /api/heightmap/area?x1=0&z1=0&x2=100&z2=100
-```
-- For large views
-- Uses: `world.get_area_heightmap(x1, z1, x2, z2)`
+Settings are defined in `orbispanora_api/settings.py` with pydantic-settings.
+Every variable is prefixed `ORBISPANORA_`. Values come from these sources; the first
+one that sets a key wins:
 
-#### **D. Tile System** (progressive loading)
-```
-GET /api/tile/{tile_x}/{tile_z}?size=16
-```
-- Tile = 16x16 chunks by default (256x256 blocks)
-- Uses: `world.get_tile_data(tx, tz, tile_size)`
+1. The command line (`run` options).
+2. Environment variables.
+3. `.env.local` in the current directory. Not committed. Per-machine values go here.
+4. `.env` in the current directory. Committed. Defaults that suit every machine; no secrets.
+5. Files in the directory named by `ORBISPANORA_SECRETS_DIR`, one file per setting
+   (as a container runtime mounts secrets).
+6. The defaults in `settings.py`.
 
-#### **E. Individual Block**
-```
-GET /api/block/{x}/{y}/{z}
-```
-- For specific details
-- Uses: `world.get_block(x, y, z).to_dict()`
+Unprefixed keys and unknown keys in the files are ignored. A value of the wrong type or
+outside its range stops the command with the key named.
 
-#### **F. Biome**
-```
-GET /api/biome/{x}/{y}/{z}
-```
-- Biome information
-- Uses: `world.get_biome(x, y, z)`
+| Variable | Default | Meaning |
+|---|---|---|
+| `ORBISPANORA_WORLD_PATH` | unset | World folder to load. Unset or empty: no world is loaded and one has to be uploaded. |
+| `ORBISPANORA_WORLD_DIMENSION` | `overworld` | `overworld`, `nether` or `end`. |
+| `ORBISPANORA_RESOURCES_DIR` | `resources` | Block textures and models (`images/`, `json/`). Not part of this repository. |
+| `ORBISPANORA_HOST`, `ORBISPANORA_PORT` | `127.0.0.1`, `8000` | Address to listen on. |
+| `ORBISPANORA_ROOT_PATH` | empty | Path prefix when a reverse proxy mounts the API below `/`. |
+| `ORBISPANORA_LOG_LEVEL` | `INFO` | `CRITICAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`. |
+| `ORBISPANORA_CORS_ORIGINS` | `*` | Comma-separated allowed origins. `*` allows all. |
+| `ORBISPANORA_CACHE_ENABLED`, `ORBISPANORA_CACHE_TYPE` | `true`, `memory` | `memory`, or `redis` (needs the `redis` extra; not tested here). |
+| `ORBISPANORA_REDIS_URL` | `redis://localhost:6379` | Secret: masked by `config show`. |
+| `ORBISPANORA_CACHE_TTL_HEIGHTMAP`, `_SURFACE`, `_CHUNK` | `300`, `120`, `600` | Cache lifetime in seconds. |
+| `ORBISPANORA_RATE_LIMIT_ENABLED`, `_REQUESTS`, `_WINDOW` | `true`, `10000`, `60` | Requests allowed per client per window (seconds). |
+| `ORBISPANORA_UPLOAD_MAX_SIZE_MB` | `500` | Maximum size of an uploaded world. |
+| `ORBISPANORA_TEMP_WORLD_DIR`, `_CLEANUP_TEMP_FILES`, `_MAX_TEMP_WORLDS` | `temp_worlds`, `true`, `5` | Where uploaded worlds are extracted and how many are kept. |
+| `ORBISPANORA_COMPRESSION_ENABLED`, `_COMPRESSION_MIN_SIZE` | `true`, `500` | Gzip responses larger than this many bytes. |
 
-### **3. Optimizations & Performance**
+Changes from the previous version, which read unprefixed names (`WORLD_PATH`,
+`API_PORT`, ...): the prefix is new; `API_HOST` and `API_PORT` are now `HOST` and
+`PORT`; `API_RELOAD` is now the `--reload` option; `UPLOAD_ALLOWED_EXTENSIONS` was
+never read and is removed; `CORS_ORIGINS` is now applied (before, the server
+allowed every origin whatever it said).
 
-#### **Cache System**
-- **Redis** (production) or **in-memory** (dev)
-- Cache by type:
-  - Heightmaps (TTL: 5 min)
-  - Surface blocks (TTL: 2 min)
-  - Simplified chunks (TTL: 10 min)
-- Invalidation on modification
+The API only reads the world at `ORBISPANORA_WORLD_PATH`. Uploaded worlds are extracted
+into `ORBISPANORA_TEMP_WORLD_DIR`. Use a copy of a world you care about.
 
-#### **Rate Limiting**
-- Limit requests per IP
-- Prevent server overload
+## Endpoints
 
-#### **Compression**
-- Gzip for JSON responses
-- ~60-70% size reduction
+All responses use the envelope `{"status": "success", "data": {...}, "timestamp": "<ISO 8601, UTC>"}`.
+Errors use FastAPI's `{"detail": "..."}`. The status codes used are 400
+(invalid parameter), 404 (chunk or resource not found), 422 (invalid query
+value), 500 (server error) and 503 (no world loaded).
 
-### **4. Error Handling**
+| Method and path | Purpose |
+|---|---|
+| `GET /` | API name, version and links. |
+| `GET /api/worlds/health` | Health check. |
+| `GET /api/worlds/current` | Information about the loaded world. |
+| `POST /api/worlds/dimension` | Switch the loaded world to another dimension. |
+| `GET /api/chunks/{chunk_x}/{chunk_z}/{chunk_h}?mode=` | Chunk data. `mode` is `heightmap`, `surface`, `isometric`, `render`, `simplified` or `full` (default `heightmap`). |
+| `GET /api/chunks/viewport/render?center_x=&center_z=&view_distance=` | Pre-computed render data for the chunks around a centre chunk (`view_distance` 1 to 32). |
+| `GET /api/chunks/area/heightmap?x1=&z1=&x2=&z2=` | Heightmap for a rectangle of chunks. |
+| `GET /api/chunks/tile/{tile_x}/{tile_z}` | Data for a square tile of chunks. |
+| `GET /api/blocks/{x}/{y}/{z}` | One block. |
+| `GET /api/biomes/{x}/{y}/{z}` | Biome at a position. |
+| `GET /api/isometric/blocks`, `GET /api/isometric/surface` | Block lists for the isometric renderer. |
+| `GET /api/isometric/stats`, `POST /api/isometric/cache/clear` | Renderer cache statistics and reset. |
+| `GET /api/resources/images/{image}`, `GET /api/resources/json`, `POST /api/resources/palette` | Block textures and block model data. |
+| `POST /api/upload/world` | Upload a zipped world in one request. |
+| `POST /api/upload/init`, `/chunk`, `/finalize`, `DELETE /api/upload/cancel/{upload_id}` | Chunked upload for large worlds. |
 
-```python
-- 404: Chunk/Block not found
-- 400: Invalid parameters
-- 500: Server error
-- 503: World not loaded
-```
+Parameters and response schemas are listed in `/docs`. That page is generated
+from the code and is the reference if this table and the code disagree.
 
-Standardized response format:
-```json
-{
-  "status": "success|error",
-  "data": {...},
-  "error": "message",
-  "timestamp": "ISO8601"
-}
-```
-
-### **5. Documentation**
-
-- **Swagger UI** automatic (`/docs`)
-- **ReDoc** (`/redoc`)
-- Request examples
-- Pydantic schemas
-
-### **6. Testing**
-
-- **Unit tests**: each endpoint
-- **Integration tests**: complete flows
-- **Performance tests**: response time
-- **Mock data** for CI/CD
-
-### **7. Advanced Features** (optional)
-
-#### **WebSocket** (real-time)
-```
-WS /api/ws/updates
-```
-- Modification notifications
-- Chunk streaming
-
-#### **Batch Requests**
-```
-POST /api/batch/chunks
-Body: {"chunks": [[0,0], [0,1], [1,0]]}
-```
-- Load multiple chunks in one request
-
-#### **Block Filters**
-```
-GET /api/chunk/{cx}/{cz}/surface?blocks=grass_block,stone
-```
-- Return only specific block types
-
-### **8. Monitoring**
-
-- **Health check**: `GET /health`
-- **Metrics**: request count, average time, cache hit rate
-- **Prometheus** compatible (optional)
-
----
-
-## 🎯 Recommended Implementation Order
-
-1. ✅ **Base structure** (main.py, config, CORS)
-2. ✅ **Endpoint /world/info** (simple, test connection)
-3. ✅ **Endpoint /chunk with heightmap mode** (essential for viewer)
-4. ✅ **Endpoint /chunk with surface mode** (isometric rendering)
-5. ✅ **In-memory cache** (performance)
-6. ✅ **Error handling** (robustness)
-7. ✅ **Endpoint /tile** (progressive loading)
-8. ✅ **Endpoint /heightmap/area** (large areas)
-9. ⚠️ **Tests** (quality)
-10. ⚠️ **Documentation** (maintainability)
-
----
-
-## 🚀 Tech Stack
-
-- **Framework**: FastAPI
-- **Python**: 3.10+
-- **Library**: anvil (custom Minecraft .mca reader)
-- **Cache**: Redis / in-memory
-- **CORS**: for Angular frontend
-- **Validation**: Pydantic
-- **Documentation**: OpenAPI/Swagger
-
----
-
-## 📦 Project Structure
+## Project structure
 
 ```
 api/
-├── main.py                 # FastAPI app entry point
-├── config.py               # Configuration & environment variables
-├── requirements.txt        # Python dependencies
-├── routers/
-│   ├── __init__.py
-│   ├── world.py           # World endpoints
-│   ├── chunk.py           # Chunk endpoints
-│   ├── tile.py            # Tile endpoints
-│   └── block.py           # Block endpoints
-├── models/
-│   ├── __init__.py
-│   ├── responses.py       # Response schemas
-│   └── requests.py        # Request schemas
-├── services/
-│   ├── __init__.py
-│   ├── world_service.py   # World management
-│   └── cache_service.py   # Cache management
-├── utils/
-│   ├── __init__.py
-│   ├── errors.py          # Custom exceptions
-│   └── logger.py          # Logging configuration
-└── tests/
-    ├── __init__.py
-    ├── test_world.py
-    ├── test_chunk.py
-    └── test_tile.py
+├── pyproject.toml          # dependencies, `orbispanora` command, build backend
+├── uv.lock
+├── .env                    # committed defaults (ORBISPANORA_*)
+├── orbispanora_api/
+│   ├── cli.py              # the `orbispanora` command (Typer)
+│   ├── settings.py         # settings (pydantic-settings)
+│   ├── main.py             # FastAPI app, CORS, rate limiting, router registration
+│   ├── routers/            # world, chunk, block, biome, isometric, resource, upload
+│   ├── services/           # world_service, cache_service, resource_service
+│   ├── middleware/         # rate limiting, compression
+│   ├── models/             # Pydantic request and response models
+│   └── utils/              # error classes
+└── tests/                  # pytest suite
 ```
 
----
+## Tests
 
-## 📚 API Documentation
+```bash
+uv run pytest
+```
 
-Once running, access:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+The tests start the API as a subprocess on local ports, once with the test world
+in `tests/utilities/b.zip` and once with no world (`tests/utilities/mock_api.py`).
+`tests/test_settings.py` and `tests/test_cli.py` run in-process without a server.
+No test uses a world from your machine.
 
----
+## Docker
 
-## 🎮 Target
+```bash
+docker build -t orbispanora-api .
+docker run -p 8000:8000 orbispanora-api
+```
 
-- **Minecraft Version**: 1.21.1
-- **Frontend**: Angular + Three.js
-- **Rendering**: Isometric 2.5D
-- **Textures**: `../assets/minecraft/textures/block/`
+The image starts `orbispanora run --host 0.0.0.0 --port 8000` with `--root-path` set
+for the Kubernetes deployment at the IUT. Remove that option when running elsewhere.
+The committed `.env` is copied into the image; `.env.local` is not. Pass other
+settings as `ORBISPANORA_*` environment variables.
 
----
+## Updating the library wheel
 
-## 📝 Notes
+After changing `../lib`:
 
-- This API uses the custom `anvil` library with API-friendly methods
-- All endpoints return JSON in standardized format
-- Cache is essential for performance with large worlds
-- CORS must be configured for Angular frontend
+```bash
+cd ../lib
+uv build --wheel -o ../api/
+cd ../api
+uv lock --upgrade-package orbispanora-lib
+uv sync
+```
+
+If the version in `lib/pyproject.toml` changes, update the wheel file name in
+`pyproject.toml` (`[tool.uv.sources]`) and in the Dockerfile. Commit the new
+wheel together with `uv.lock`, which stores the wheel's hash.

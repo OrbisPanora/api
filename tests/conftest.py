@@ -78,7 +78,7 @@ def start_api():
     api_dir = os.path.dirname(current_dir)  # Go up from tests/ to api/
     
     # Verify main.py exists
-    main_py_path = os.path.join(api_dir, "main.py")
+    main_py_path = os.path.join(api_dir, "orbispanora_api", "main.py")
     if not os.path.exists(main_py_path):
         raise RuntimeError(f"Could not find main.py at {main_py_path}")
     
@@ -86,11 +86,9 @@ def start_api():
 
     env = os.environ.copy()
     env["ENV"] = "test"
-    env["CACHE_ENABLED"] = "false"
-    env["RATE_LIMIT_ENABLED"] = "false"
-    env["COMPRESSION_ENABLED"] = "false"
-    env["API_PORT"] = str(API_PORT)
-    env["API_HOST"] = API_HOST
+    env["ORBISPANORA_CACHE_ENABLED"] = "false"
+    env["ORBISPANORA_RATE_LIMIT_ENABLED"] = "false"
+    env["ORBISPANORA_COMPRESSION_ENABLED"] = "false"
     env["PYTHONUNBUFFERED"] = "1"  # Force unbuffered output
 
     # Use Python module syntax for cross-platform compatibility
@@ -98,7 +96,7 @@ def start_api():
         [
             sys.executable,  # Use the current Python interpreter
             "-m", "uvicorn",
-            "main:app",
+            "orbispanora_api.main:app",
             "--host", API_HOST,
             "--port", str(API_PORT),
             "--log-level", "info"  # Changed to info to see startup messages

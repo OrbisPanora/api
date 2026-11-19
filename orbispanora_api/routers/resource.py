@@ -4,13 +4,14 @@ Provides resources for each minecraft block.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from datetime import datetime
+from datetime import UTC, datetime
 import os
 import json
-from models.responses import APIResponse, BlockJsonDataResponse
-from utils.errors import InvalidBlockProperties
+from ..models.responses import APIResponse, BlockJsonDataResponse
+from ..utils.errors import InvalidBlockProperties
+from ..settings import get_settings
 import logging
-from services.resource_service import get_json_block
+from ..services.resource_service import get_json_block
 from pydantic import BaseModel, RootModel, Field
 from typing import List, Dict, Union, Optional
 
@@ -34,7 +35,7 @@ router = APIRouter(
 async def get_image(
     image: str
 ):
-    filepath = f"resources/images/{image}"
+    filepath = f"{get_settings().resources_dir}/images/{image}"
 
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Image not found")
@@ -72,7 +73,7 @@ async def get_json(
         return APIResponse(
             status="success",
             data=json_data,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC)
         )
     except InvalidBlockProperties:
         raise HTTPException(
