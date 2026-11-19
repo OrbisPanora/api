@@ -41,6 +41,8 @@ dev = [
     "pytest-cov>=7.1",
     "pylint>=4.0",
     "ty>=0.0.80",
+    # Not imported at runtime unless the cache type is redis, but ty needs it to check cache_service.py.
+    "redis>=7",
 ]
 
 [tool.uv]
