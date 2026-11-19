@@ -35,3 +35,5 @@ logs/
 *.sqlite3
 
 /temp_worlds
+.coverage
+.pytest_cache/

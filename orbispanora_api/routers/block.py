@@ -3,9 +3,9 @@ Block endpoints for the API.
 Provides block data in various formats for the isometric viewer.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import UTC, datetime
-from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..models.responses import APIResponse, BlockDataResponse
 from ..services.world_service import WorldService, get_world_service
@@ -37,7 +37,7 @@ async def get_block(
 ) -> APIResponse[BlockDataResponse]:
     """
     Get block data at the specified coordinates.
-    
+
     **Returns:**
     - block_x, block_y, block_z: Block coordinates
     - id: Type of the block
@@ -68,10 +68,10 @@ async def get_block(
         raise HTTPException(
             status_code=400,
             detail=str(e)
-        )
-    
+        ) from e
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
-        )
+        ) from e

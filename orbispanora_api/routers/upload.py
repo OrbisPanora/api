@@ -4,18 +4,18 @@ Provides endpoints for uploading Minecraft world files.
 Supports chunked upload for large files.
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
-from datetime import UTC, datetime
 import os
+import shutil
 import tempfile
 import uuid
-import shutil
+from datetime import UTC, datetime
 from typing import Dict
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from ..models.responses import APIResponse, WorldInfoResponse
 from ..services.world_service import WorldService, get_world_service
-from ..settings import get_settings
 
 router = APIRouter(
     prefix="/api/upload",
@@ -65,7 +65,7 @@ async def init_chunked_upload(
 ) -> APIResponse[ChunkUploadInit]:
     """
     Initialize a chunked upload session.
-    
+
     Returns an upload_id that must be used for subsequent chunk uploads.
     """
     # Validate file extension
@@ -74,7 +74,7 @@ async def init_chunked_upload(
             status_code=400,
             detail="Only .zip files are allowed"
         )
-    
+
     # Validate dimension
     valid_dimensions = ["overworld", "nether", "end"]
     if dimension not in valid_dimensions:
@@ -82,14 +82,14 @@ async def init_chunked_upload(
             status_code=400,
             detail=f"Invalid dimension. Must be one of: {', '.join(valid_dimensions)}"
         )
-    
+
     # Generate unique upload ID
     upload_id = str(uuid.uuid4())
-    
+
     # Create directory for this upload's chunks
     upload_dir = os.path.join(CHUNKS_DIR, upload_id)
     os.makedirs(upload_dir, exist_ok=True)
-    
+
     # Store upload metadata
     chunked_uploads[upload_id] = {
         "filename": filename,
@@ -100,10 +100,10 @@ async def init_chunked_upload(
         "upload_dir": upload_dir,
         "created_at": datetime.now(UTC)
     }
-    
+
     # Recommended chunk size (5MB)
     chunk_size = 5 * 1024 * 1024
-    
+
     return APIResponse(
         status="success",
         data=ChunkUploadInit(
@@ -128,7 +128,7 @@ async def upload_chunk(
 ) -> APIResponse[ChunkUploadStatus]:
     """
     Upload a single chunk of the file.
-    
+
     Chunks can be uploaded in any order. The server will reassemble them
     based on chunk_index.
     """
@@ -138,35 +138,35 @@ async def upload_chunk(
             status_code=404,
             detail="Upload session not found. Please initialize upload first."
         )
-    
+
     upload_info = chunked_uploads[upload_id]
-    
+
     # Validate chunk index
     if chunk_index < 0 or chunk_index >= upload_info["total_chunks"]:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid chunk index. Must be between 0 and {upload_info['total_chunks'] - 1}"
         )
-    
+
     # Check if chunk already received
     if chunk_index in upload_info["received_chunks"]:
         raise HTTPException(
             status_code=400,
             detail=f"Chunk {chunk_index} already received"
         )
-    
+
     # Save chunk to disk
     chunk_path = os.path.join(upload_info["upload_dir"], f"chunk_{chunk_index:06d}")
     content = await chunk.read()
-    
+
     with open(chunk_path, "wb") as f:
         f.write(content)
-    
+
     # Mark chunk as received
     upload_info["received_chunks"].add(chunk_index)
-    
+
     is_complete = len(upload_info["received_chunks"]) == upload_info["total_chunks"]
-    
+
     return APIResponse(
         status="success",
         data=ChunkUploadStatus(
@@ -191,7 +191,7 @@ async def finalize_chunked_upload(
 ) -> APIResponse[WorldInfoResponse]:
     """
     Finalize the chunked upload by reassembling all chunks and loading the world.
-    
+
     All chunks must be uploaded before calling this endpoint.
     """
     # Validate upload session exists
@@ -200,9 +200,9 @@ async def finalize_chunked_upload(
             status_code=404,
             detail="Upload session not found"
         )
-    
+
     upload_info = chunked_uploads[upload_id]
-    
+
     # Check if all chunks received
     if len(upload_info["received_chunks"]) != upload_info["total_chunks"]:
         missing = upload_info["total_chunks"] - len(upload_info["received_chunks"])
@@ -210,35 +210,35 @@ async def finalize_chunked_upload(
             status_code=400,
             detail=f"Upload incomplete. Missing {missing} chunks."
         )
-    
+
     try:
         # Reassemble chunks into final file
         final_zip_path = os.path.join(CHUNKS_DIR, f"{upload_id}.zip")
-        
+
         with open(final_zip_path, "wb") as final_file:
             for i in range(upload_info["total_chunks"]):
                 chunk_path = os.path.join(upload_info["upload_dir"], f"chunk_{i:06d}")
                 with open(chunk_path, "rb") as chunk_file:
                     final_file.write(chunk_file.read())
-        
+
         print(f"Reassembled {upload_info['total_chunks']} chunks into {final_zip_path}")
-        
+
         # Load the world
         world_service.load_world_from_zip(final_zip_path, upload_info["dimension"])
         world_info = world_service.get_world_info()
-        
+
         return APIResponse(
             status="success",
             data=world_info,
             timestamp=datetime.now(UTC)
         )
-    
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to finalize upload: {str(e)}"
-        )
-    
+        ) from e
+
     finally:
         # Cleanup: remove chunks directory and final zip
         try:
@@ -262,16 +262,16 @@ async def cancel_chunked_upload(upload_id: str):
             status_code=404,
             detail="Upload session not found"
         )
-    
+
     upload_info = chunked_uploads[upload_id]
-    
+
     # Cleanup
     try:
         shutil.rmtree(upload_info["upload_dir"], ignore_errors=True)
         del chunked_uploads[upload_id]
     except Exception:
         pass
-    
+
     return APIResponse(
         status="success",
         data={"message": "Upload cancelled"},
@@ -331,7 +331,7 @@ async def upload_world(
     """
     try:
         # Validate file extension
-        if not file.filename.lower().endswith('.zip'):
+        if not (file.filename or '').lower().endswith('.zip'):
             raise HTTPException(
                 status_code=400,
                 detail="Only .zip files are allowed"
@@ -379,10 +379,10 @@ async def upload_world(
         raise HTTPException(
             status_code=400,
             detail=str(e)
-        )
+        ) from e
 
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to upload and load world: {str(e)}"
-        )
+        ) from e

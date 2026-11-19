@@ -1,143 +1,76 @@
+"""Fixtures: the application in-process, with a small generated world or with none."""
+
 import os
-import sys
-import subprocess
-import time
-import requests
+
 import pytest
-import logging
+from fastapi.testclient import TestClient
 
-LOGGER = logging.getLogger(__name__)
+from orbispanora_api.settings import get_settings
+from tests.utilities.make_world import build_world, build_world_zip
 
-API_HOST = "127.0.0.1"
-API_PORT = 8001
-API_URL = f"http://{API_HOST}:{API_PORT}"
-
-
-def wait_for_server(url, process, timeout=30):
-    """Wait for the FastAPI server to be ready before running tests."""
-    print(f"Waiting for API to be ready at {url}...")
-    
-    start_time = time.time()
-    for i in range(timeout * 10):
-        # Check if process has died
-        if process.poll() is not None:
-            # Process has terminated
-            stdout, stderr = process.communicate()
-            print("\n[ERROR] API process died!")
-            print(f"Exit code: {process.returncode}")
-            print(f"\nSTDOUT:\n{stdout.decode('utf-8', errors='ignore')}")
-            print(f"\nSTDERR:\n{stderr.decode('utf-8', errors='ignore')}")
-            raise RuntimeError("API process terminated unexpectedly")
-        
-        try:
-            r = requests.get(url, timeout=1)
-            if r.status_code < 500:
-                elapsed = time.time() - start_time
-                print(f"API is ready! (took {elapsed:.2f}s)")
-                return True
-        except requests.exceptions.ConnectionError:
-            pass
-        except requests.exceptions.Timeout:
-            pass
-        
-        # Print progress every 5 seconds
-        if i % 50 == 0 and i > 0:
-            elapsed = time.time() - start_time
-            print(f"Still waiting... ({elapsed:.1f}s elapsed)")
-        
-        time.sleep(0.1)
-    
-    # Timeout reached - capture output for debugging
-    print("\n[ERROR] Timeout waiting for API to start!")
-    if process.poll() is None:
-        print("Process is still running but not responding...")
-        process.terminate()
-        try:
-            stdout, stderr = process.communicate(timeout=3)
-            print(f"\nSTDOUT:\n{stdout.decode('utf-8', errors='ignore')}")
-            print(f"\nSTDERR:\n{stderr.decode('utf-8', errors='ignore')}")
-        except subprocess.TimeoutExpired:
-            process.kill()
-    
-    raise RuntimeError(f"API did not respond at {url} after {timeout}s")
+# Middleware is configured when `orbispanora_api.main` is imported, so these are set first.
+os.environ["ORBISPANORA_CACHE_ENABLED"] = "false"
+os.environ["ORBISPANORA_RATE_LIMIT_ENABLED"] = "false"
+os.environ["ORBISPANORA_COMPRESSION_ENABLED"] = "false"
 
 
-@pytest.fixture(scope="session", autouse=True)
-def start_api():
-    """
-    Launch FastAPI server (uvicorn) in a separate process
-    and terminate it cleanly at the end of the test session.
-    """
-    print("\n[*] Starting OrbisPanora API for integration tests...")
-    print(f"[*] Python executable: {sys.executable}")
-    print(f"[*] Working directory: {os.getcwd()}")
+def _reset_services():
+    """Forget the world and the worker processes of the previous test."""
+    from orbispanora_api.services import world_service  # pylint: disable=import-outside-toplevel
 
-    # Find the API directory (where main.py is located)
-    # This handles both pytest from command line and VS Code test runner
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    api_dir = os.path.dirname(current_dir)  # Go up from tests/ to api/
-    
-    # Verify main.py exists
-    main_py_path = os.path.join(api_dir, "orbispanora_api", "main.py")
-    if not os.path.exists(main_py_path):
-        raise RuntimeError(f"Could not find main.py at {main_py_path}")
-    
-    #print(f"[*] API directory: {api_dir}")
+    if world_service._world_service is not None:  # pylint: disable=protected-access
+        world_service._world_service.shutdown()  # pylint: disable=protected-access
+    world_service._world_service = None  # pylint: disable=protected-access
+    world_service.WorldService._instance = None  # pylint: disable=protected-access
+    world_service.WorldService._world = None  # pylint: disable=protected-access
+    world_service.WorldService._world_path = None  # pylint: disable=protected-access
 
-    env = os.environ.copy()
-    env["ENV"] = "test"
-    env["ORBISPANORA_CACHE_ENABLED"] = "false"
-    env["ORBISPANORA_RATE_LIMIT_ENABLED"] = "false"
-    env["ORBISPANORA_COMPRESSION_ENABLED"] = "false"
-    env["PYTHONUNBUFFERED"] = "1"  # Force unbuffered output
 
-    # Use Python module syntax for cross-platform compatibility
-    process = subprocess.Popen(
-        [
-            sys.executable,  # Use the current Python interpreter
-            "-m", "uvicorn",
-            "orbispanora_api.main:app",
-            "--host", API_HOST,
-            "--port", str(API_PORT),
-            "--log-level", "info"  # Changed to info to see startup messages
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        cwd=api_dir  # Use the detected API directory
-    )
+@pytest.fixture
+def world_dir(tmp_path):
+    """A world folder with four chunks."""
+    return build_world(tmp_path / "world")
 
-    try:
-            # Always attempt startup
-        try:
-            wait_for_server(f"{API_URL}/docs", process)
-        except RuntimeError as e:
-            print(f"\n[!] Failed to start API: {e}")
-            raise
 
-        url = f"{API_URL}/api/upload/world"
-        base = os.path.dirname(__file__)
-        file_path = os.path.join(base, "utilities", "b.zip")
+@pytest.fixture
+def world_zip(tmp_path):
+    """A zip file holding a world folder."""
+    return build_world_zip(tmp_path / "world.zip")
 
-        with open(file_path, "rb") as f:
-            files = {"file": ("myworld.zip", f, "application/zip")}
-            requests.post(url, files=files)
-        # Yield to run all tests
-        yield
 
-    finally:
-        # ALWAYS clean up — even if startup failed or tests aborted
-        print("\n[*] Stopping OrbisPanora API...")
+@pytest.fixture
+def make_client(monkeypatch, tmp_path):
+    """Build a test client, with or without a world, and clean up afterwards."""
+    clients = []
 
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-                print("[*] API stopped gracefully")
-            except subprocess.TimeoutExpired:
-                print("[!] Process didn't stop gracefully, forcing kill...")
-                process.kill()
-                process.wait()
-                print("[*] API killed")
-            else:
-                print("[*] API process was already dead")
+    def make(world_path=None):
+        monkeypatch.delenv("ORBISPANORA_WORLD_PATH", raising=False)
+        if world_path is not None:
+            monkeypatch.setenv("ORBISPANORA_WORLD_PATH", str(world_path))
+        monkeypatch.setenv("ORBISPANORA_TEMP_WORLD_DIR", str(tmp_path / "uploads"))
+        get_settings.cache_clear()
+        _reset_services()
+        from orbispanora_api.main import app  # pylint: disable=import-outside-toplevel
+
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        clients.append(client)
+        return client
+
+    yield make
+    for client in clients:
+        client.__exit__(None, None, None)
+    _reset_services()
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def client(make_client, world_dir):
+    """A client for an API with a world loaded."""
+    return make_client(world_dir)
+
+
+@pytest.fixture
+def client_without_world(make_client):
+    """A client for an API that has no world."""
+    return make_client()

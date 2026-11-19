@@ -4,10 +4,12 @@ build-backend = "uv_build"
 
 [project]
 name = "orbispanora-api"
-version = "1.0.0"
+version = "0.1.0"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
 description = "FastAPI backend for the OrbisPanora isometric Minecraft world viewer."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.162",
     "uvicorn[standard]>=0.54",
@@ -22,6 +24,10 @@ dependencies = [
     "typer>=0.27",
 ]
 
+[project.urls]
+Homepage = "https://github.com/OrbisPanora/api"
+Issues = "https://github.com/OrbisPanora/api/issues"
+
 [project.scripts]
 orbispanora = "orbispanora_api.cli:app"
 
@@ -32,6 +38,9 @@ redis = ["redis>=7"]
 dev = [
     "pytest>=9.2",
     "httpx>=0.28",
+    "pytest-cov>=7.1",
+    "pylint>=4.0",
+    "ty>=0.0.80",
 ]
 
 [tool.uv]
@@ -42,14 +51,19 @@ module-name = "orbispanora_api"
 module-root = ""
 
 [tool.uv.sources]
-# Wheel built from ../lib (see README, "Updating the library wheel").
-orbispanora-lib = { path = "orbispanora_lib-1.0.0-py3-none-any.whl" }
+# The library is installed from GitHub. uv.lock pins the commit. At a release the
+# source is a tag (tag = "v0.1.0"); until then it follows a branch.
+orbispanora-lib = { git = "https://github.com/OrbisPanora/lib", branch = "dev" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-log_cli = true
-log_cli_level = "DEBUG"
-log_cli_format = "%(levelname)8s %(message)s"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.coverage.run]
+source = ["orbispanora_api"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

@@ -1,18 +1,19 @@
-import json
-import os
-from ..utils.errors import InvalidBlockProperties
-from ..settings import get_settings
-from ..models.responses import BlockJsonDataResponse
-import logging
-import random
-from PIL import Image
 import base64
-from io import BytesIO
-from typing import List, Dict, Union, Optional
+import json
+import logging
+import os
+import random
+from typing import List, Optional, Union
+
+from PIL import Image
+
+from ..models.responses import BlockJsonDataResponse
+from ..settings import get_settings
+from ..utils.errors import InvalidBlockProperties
 
 LOGGER = logging.getLogger(__file__)
 
-def get_json_block(id: str, namespace: str = "minecraft", properties: str = "{}", biome: str = "biome") -> BlockJsonDataResponse:
+def get_json_block(id: str, namespace: str = "minecraft", properties: Union[str, dict] = "{}", biome: str = "biome") -> BlockJsonDataResponse:  # pylint: disable=redefined-builtin
 
     blockstate_data = _get_blockstate_data(id)
     if isinstance(properties, dict):
@@ -29,8 +30,8 @@ def _get_blockstate_data(name: str) -> dict:
 
     if not os.path.exists(block):
         raise FileNotFoundError("json file: {block} not found")
-        
-    with open(block, 'r') as f:
+
+    with open(block, 'r', encoding='utf-8') as f:
         blockstate_data = json.load(f)
     return blockstate_data
 
@@ -49,11 +50,11 @@ def get_variants_block_data(blockstate_data: dict, properties: dict):
                         else:
                             model = props["model"]
                         break
-            if model == None:
+            if model is None:
                 firstKey = next(iter(blockstate_data['variants']))
                 model = blockstate_data["variants"][firstKey]["model"]
-        except:
-            raise InvalidBlockProperties("Properties are undefined but must be defined")
+        except Exception as exc:
+            raise InvalidBlockProperties("Properties are undefined but must be defined") from exc
     else:
         try:
             firstKey = next(iter(blockstate_data['variants']))
@@ -65,17 +66,17 @@ def get_variants_block_data(blockstate_data: dict, properties: dict):
             else:
                 model = blockstate_data["variants"][firstKey]["model"]
                 model = blockstate_data["variants"][firstKey]["model"]
-        except:
-            raise InvalidBlockProperties("Properties are defined but must be empty")
+        except Exception as exc:
+            raise InvalidBlockProperties("Properties are defined but must be empty") from exc
     return model
 
 def get_multiparts_block_data(blockstate_data: dict, properties: dict):
     if properties == {}:
         raise InvalidBlockProperties("Properties are undefined but must be defined")
     try :
-        cores : List[str] = []
-        connexions: List[str] = []
-        overlays: List[str] = []
+        cores: List[dict] = []
+        connexions: List[dict] = []
+        overlays: List[dict] = []
 
         data = blockstate_data['multipart']
         print("===================start================")
@@ -104,29 +105,29 @@ def get_multiparts_block_data(blockstate_data: dict, properties: dict):
             'overlays': overlays
         }
         print(model)
-    except:
-        raise Exception
+    except Exception as exc:
+        raise Exception from exc
     return model
 
 def _get_block_data(blockstate_data: dict, properties: dict, id:str, namespace: str, biome: str) -> dict:
     blocks_path = f"{get_settings().resources_dir}/json/blocks"
 
     if "variants" in blockstate_data:
-        model = get_variants_block_data(blockstate_data, properties)  
+        model = get_variants_block_data(blockstate_data, properties)
         model_name = model.split("/")[-1]
         json_file = model_name + '.json'
 
         filepath = os.path.join(blocks_path, json_file)
 
-        with open(filepath, 'r') as f:
-            model_data = json.load(f)   
+        with open(filepath, 'r', encoding='utf-8') as f:
+            model_data = json.load(f)
 
         texture = _get_texture_isometric(model_data)
         if check_tintindex(model_data):
             if biome == "biome":
                 raise Exception()
             color = get_colors(id, namespace, biome)
-            texture["color"] = color 
+            texture["color"] = color
         results = {
             'block_name': id,
             'resources': texture,
@@ -141,15 +142,15 @@ def _get_block_data(blockstate_data: dict, properties: dict, id:str, namespace: 
                 json_file = model_name + '.json'
 
                 filepath = os.path.join(blocks_path, json_file)
-                
-                with open(filepath, 'r') as f:
-                    model_data = json.load(f)  
+
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    model_data = json.load(f)
                 texture = _get_texture_isometric(model_data)
                 if check_tintindex(model_data):
                     if biome == "biome":
                         raise Exception()
                     color = get_colors(id, namespace, biome)
-                    texture["color"] = color  
+                    texture["color"] = color
                 texture['categorie'] = categorie
                 if 'when' in model:
                     texture['when'] = model['when']
@@ -158,7 +159,7 @@ def _get_block_data(blockstate_data: dict, properties: dict, id:str, namespace: 
                 result = {
                     'block_name': model_name,
                     'textures': texture,
-                } 
+                }
                 results['resources']['params'].append(result)
     return results
 
@@ -171,7 +172,7 @@ def check_tintindex(model_data: dict) -> bool:
         parent_name = model_data["parent"].split("/")[-1] +'.json'
         filepath = os.path.join(blocks_path, parent_name)
 
-        with open(filepath, 'r') as f:
+        with open(filepath, 'r', encoding='utf-8') as f:
             parent_data= json.load(f)
         return has_tintindex(parent_data)
     return False
@@ -191,12 +192,12 @@ def get_biomes_values(biome: str) -> tuple[float,float]:
 
     file = os.path.join(biome_path, biome)
 
-    with open(file, 'r') as f:
+    with open(file, 'r', encoding='utf-8') as f:
         biome_data = json.load(f)
 
     downfall = biome_data["downfall"]
     temperature = biome_data["temperature"]
-    
+
     return (downfall, temperature)
 
 def image_to_base64(image_path: str) -> str:
@@ -207,7 +208,7 @@ def get_images(textures: dict):
     images = {}
     image_path = f"{get_settings().resources_dir}/images/"
     for key, value in textures.items():
-        if value != None:
+        if value is not None:
             img_base64 = image_to_base64(image_path + value)
             images[key] = img_base64
         else:
@@ -219,7 +220,7 @@ def _get_texture_isometric(model_data: dict):
     # Get the 'textures' dictionary, defaulting to an empty dict if not present.
     textures_source = model_data.get("textures", {})
     texture = {}
-    
+
     # Initialize isometric texture paths.
     # Set to None if the face should be masked/hidden.
     iso_top_path = None
@@ -227,17 +228,17 @@ def _get_texture_isometric(model_data: dict):
 
     # --- STEP 1: Handle special (non-cubic) cases with masking ---
     # These blocks require either the top or the side face to be hidden.
-    
+
     if "cross" in textures_source:
         # E.g., Flowers, Grass. Only render the sides (vertical plane).
         iso_side_path = textures_source["cross"]
         # iso_top_path remains None (masked)
-    
+
     elif "rail" in textures_source:
         # E.g., Rail. Only render the top.
         iso_top_path = textures_source["rail"]
         # iso_side_path remains None (masked)
-        
+
     elif "pane" in textures_source or "bars" in textures_source:
         # E.g., Glass panes, Iron bars. Only render the sides (the post/bar texture).
         if "pane" in textures_source:
@@ -249,7 +250,7 @@ def _get_texture_isometric(model_data: dict):
     # --- STEP 2: Handle cubic and composite blocks (full cube rendering) ---
     # If paths are still None, it's a cube-type block (or slab, stairs, etc.).
     if iso_top_path is None and iso_side_path is None:
-        
+
         # A. Determine the Isometric TOP face (Priority: top > end > all > texture)
         if "top" in textures_source:
             iso_top_path = textures_source["top"]
@@ -279,21 +280,21 @@ def _get_texture_isometric(model_data: dict):
         # C. Fallback: If no side texture is found, use the top texture (e.g., "top" only blocks)
         if iso_side_path is None:
             iso_side_path = iso_top_path
-        
+
         # D. Final Fallback (if top wasn't defined but side was)
         if iso_top_path is None and iso_side_path is not None:
-             iso_top_path = iso_side_path
+            iso_top_path = iso_side_path
 
 
     # --- STEP 3: Apply final format and handle masking (None) ---
-    
+
     # Isometric TOP face
     if iso_top_path:
         texture_top_name = iso_top_path.split("/")[-1]
         texture["top"] = f"{texture_top_name}_top.webp"
     else:
         # If path is None, the face is masked/should not be rendered.
-        texture["top"] = None 
+        texture["top"] = None
 
     # Isometric SIDE/LEFT face
     if iso_side_path:
@@ -301,17 +302,17 @@ def _get_texture_isometric(model_data: dict):
         texture["left"] = f"{texture_left_name}_left.webp"
     else:
         # If path is None, the face is masked/should not be rendered.
-        texture["left"] = None 
+        texture["left"] = None
 
     images = get_images(texture)
 
     return images
 
-def get_colors(id: str, namespace: str, biome: str) -> str:
+def get_colors(id: str, namespace: str, biome: str) -> Optional[str]:  # pylint: disable=redefined-builtin
     color_json_path = f"{get_settings().resources_dir}/json/colors/biome_tint_map.json"
     fullname = namespace + ":" + id
 
-    with open(color_json_path, 'r') as f:
+    with open(color_json_path, 'r', encoding='utf-8') as f:
         colors_data = json.load(f)
 
     if fullname in colors_data.keys():
@@ -332,7 +333,8 @@ def get_colors(id: str, namespace: str, biome: str) -> str:
         x = max(0, min(255, x))
         y = max(0, min(255, y))
 
-        r, g, b = img.getpixel((x, y))
-        hex = "#{:02X}{:02X}{:02X}".format(r, g, b)
-        return hex
-    
+        pixel = img.convert("RGB").getpixel((x, y))
+        assert isinstance(pixel, tuple)
+        red, green, blue = pixel[:3]
+        return f"#{red:02X}{green:02X}{blue:02X}"
+    return None

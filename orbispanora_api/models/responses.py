@@ -3,11 +3,12 @@ Response models for API endpoints.
 Standardized response format for all endpoints.
 """
 
-from pydantic import BaseModel, Field
-from typing import Any, Optional, List, TypeVar, Generic
 from datetime import UTC, datetime
+from typing import Generic, List, Optional, TypeVar
 
-TResponse = TypeVar("TResponseData")
+from pydantic import BaseModel, Field
+
+TResponse = TypeVar("TResponse")
 
 class APIResponse(BaseModel, Generic[TResponse]):
     """Standardized API response wrapper."""
@@ -16,12 +17,12 @@ class APIResponse(BaseModel, Generic[TResponse]):
     data: Optional[TResponse] = Field(None, description="Response data")
     error: Optional[str] = Field(None, description="Error message if status is 'error'")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Response timestamp")
-    
+
 
 
 class WorldInfoResponse(BaseModel):
     """World information response data."""
-    
+
     dimension: str = Field(..., description="Current dimension (overworld, nether, end)")
     world_folder: str = Field(..., description="Path to world folder")
     region_dir: str = Field(..., description="Path to region directory")
@@ -29,7 +30,7 @@ class WorldInfoResponse(BaseModel):
     loaded_regions: int = Field(..., description="Number of loaded regions")
     region_list: List[List[int]] = Field(..., description="List of loaded region coordinates [[rx, rz], ...]")
     cache_stats: Optional[dict] = Field(None, description="Cache statistics")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -49,7 +50,7 @@ class WorldInfoResponse(BaseModel):
 
 class ChunkDataResponse(BaseModel):
     """Chunk data response in various formats."""
-    
+
     chunk_x: int = Field(..., description="Chunk X coordinate")
     chunk_z: int = Field(..., description="Chunk Z coordinate")
     heightmap: Optional[List[List[int]]|int] = Field(None, description="16x16 heightmap array")
@@ -57,7 +58,7 @@ class ChunkDataResponse(BaseModel):
     render_data: Optional[dict] = Field(None, description="Pre-calculated render data for optimized 2D display (render mode)")
     sections: Optional[List[dict]] = Field(None, description="Chunk sections (simplified/full mode)")
     palette: Optional[List[str]|int] = Field(None, description="Block palette (simplified/full mode)")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -73,7 +74,7 @@ class ChunkDataResponse(BaseModel):
 
 class AreaHeightmapResponse(BaseModel):
     """Area heightmap response for large regions."""
-    
+
     x1: int = Field(..., description="Minimum X coordinate")
     z1: int = Field(..., description="Minimum Z coordinate")
     x2: int = Field(..., description="Maximum X coordinate")
@@ -81,7 +82,7 @@ class AreaHeightmapResponse(BaseModel):
     width: int = Field(..., description="Width in blocks")
     height: int = Field(..., description="Height in blocks")
     heightmap: List[List[int]] = Field(..., description="2D heightmap array")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -98,7 +99,7 @@ class AreaHeightmapResponse(BaseModel):
 
 class TileDataResponse(BaseModel):
     """Tile data response for progressive loading."""
-    
+
     tile_x: int = Field(..., description="Tile X coordinate")
     tile_z: int = Field(..., description="Tile Z coordinate")
     tile_size: int = Field(..., description="Tile size in chunks")
@@ -106,7 +107,7 @@ class TileDataResponse(BaseModel):
     start_chunk_z: int = Field(..., description="Starting chunk Z coordinate")
     chunks: List[dict] = Field(..., description="List of chunk data in the tile")
     chunk_count: int = Field(..., description="Number of chunks in the tile")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -123,13 +124,13 @@ class TileDataResponse(BaseModel):
 
 class BlockDataResponse(BaseModel):
     """Block data response at specific coordinates."""
-    
+
     block_x: int = Field(..., description="Block X coordinate")
     block_y: int = Field(..., description="Block Y coordinate")
     block_z: int = Field(..., description="Block Z coordinate")
     id: str = Field(..., description="Type of the block")
     properties: Optional[dict] = Field(None, description="Additional properties about the block")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -146,12 +147,12 @@ class BlockDataResponse(BaseModel):
 
 class BiomeDataResponse(BaseModel):
     """Biome data response at specific coordinates."""
-    
+
     biome_x: int = Field(..., description="Biome X coordinate")
     biome_y: int = Field(..., description="Biome Y coordinate")
     biome_z: int = Field(..., description="Biome Z coordinate")
     id: str = Field(..., description="Biome at the specified coordinates")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -166,8 +167,8 @@ class BlockJsonDataResponse(BaseModel):
     """ Json's block data response for isometric's request. """
 
     block_name: str = Field(..., description="Block's name")
-    resources: dict = Field(..., description="resources for isometric's requests") 
-    type: str = Field(..., description="variant's type or multipart's type") 
+    resources: dict = Field(..., description="resources for isometric's requests")
+    type: str = Field(..., description="variant's type or multipart's type")
 
     class Config:
         json_schema_extra = {

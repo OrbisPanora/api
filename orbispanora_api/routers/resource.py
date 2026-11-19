@@ -2,18 +2,19 @@
 Resource endpoints for the API.
 Provides resources for each minecraft block.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
-from datetime import UTC, datetime
-import os
-import json
-from ..models.responses import APIResponse, BlockJsonDataResponse
-from ..utils.errors import InvalidBlockProperties
-from ..settings import get_settings
 import logging
+import os
+from datetime import UTC, datetime
+from typing import Dict, List, Optional, Union
+
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field, RootModel
+
+from ..models.responses import APIResponse, BlockJsonDataResponse
 from ..services.resource_service import get_json_block
-from pydantic import BaseModel, RootModel, Field
-from typing import List, Dict, Union, Optional
+from ..settings import get_settings
+from ..utils.errors import InvalidBlockProperties
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,21 +70,21 @@ async def get_json(
                 status_code=404,
                 detail=f"Json's {id} not found"
             )
-        
+
         return APIResponse(
             status="success",
             data=json_data,
             timestamp=datetime.now(UTC)
         )
-    except InvalidBlockProperties:
+    except InvalidBlockProperties as exc:
         raise HTTPException(
             status_code=400
-        )
-    except FileNotFoundError:
+        ) from exc
+    except FileNotFoundError as exc:
         raise HTTPException(
             status_code=404,
             detail = f"Block {id},  unknown or not found"
-        )
+        ) from exc
 
 class BlockItem(BaseModel):
     biome: str
@@ -105,12 +106,12 @@ def get_palette(request: PaletteRequest) -> APIResponse:
 
     # Access the root dictionary from the first BlockMap in the list
     blocks_dict = request.blocks[0].root
-    
+
     for block_name, block_variants in blocks_dict.items():
         # Initialize list for this block if not exists
         if block_name not in palette:
             palette[block_name] = []
-        
+
         for variant in block_variants:
             try:
                 json_data = get_json_block(
@@ -119,7 +120,7 @@ def get_palette(request: PaletteRequest) -> APIResponse:
                     properties=variant.properties,
                     biome=variant.biome
                 )
-                
+
                 # Add this variant's data
                 palette[block_name].append({
                     "biome": variant.biome,
@@ -127,7 +128,7 @@ def get_palette(request: PaletteRequest) -> APIResponse:
                     "resources": json_data.resources,
                     "type": json_data.type
                 })
-                
+
             except FileNotFoundError:
                 LOGGER.warning(f"Block {block_name} not found")
                 continue

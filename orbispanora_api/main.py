@@ -3,21 +3,30 @@ OrbisPanora API - FastAPI backend for isometric Minecraft world viewer.
 Main application entry point.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
 
-from .settings import APP_DESCRIPTION, APP_TITLE, APP_VERSION, get_settings
-from .routers import world_router, chunk_router, block_router, biome_router, upload_router, resource_router, isometric_router
-from .services import get_world_service
+from .middleware import GZipMiddleware, RateLimitMiddleware
+from .routers import (
+    biome_router,
+    block_router,
+    chunk_router,
+    isometric_router,
+    resource_router,
+    upload_router,
+    world_router,
+)
 from .routers.isometric import shutdown_isometric_service
+from .services import get_world_service
 from .services.cache_service import init_cache_service
-from .middleware import RateLimitMiddleware, GZipMiddleware
+from .settings import APP_DESCRIPTION, APP_TITLE, APP_VERSION, get_settings
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """
     Lifespan context manager for startup and shutdown events.
     """
@@ -25,7 +34,7 @@ async def lifespan(app: FastAPI):
     print("\n" + "="*60)
     print("Starting OrbisPanora API")
     print("="*60)
-    
+
     try:
         for level, message in get_settings().problems():
             print(f"[{level.upper()}] {message}")
@@ -39,7 +48,7 @@ async def lifespan(app: FastAPI):
                 "surface": get_settings().cache_ttl_surface,
                 "chunk": get_settings().cache_ttl_chunk
             }
-            cache_service = init_cache_service(
+            init_cache_service(
                 get_settings().cache_type,
                 get_settings().redis_url.get_secret_value(),
                 ttl_config
@@ -50,20 +59,22 @@ async def lifespan(app: FastAPI):
             print(f"  - Chunk TTL: {get_settings().cache_ttl_chunk}s")
         else:
             print("Cache disabled")
-        
+
         world_service = get_world_service()
-        print(f"World service initialized")
+        if get_settings().world_path is not None:
+            world_service.load_world_from_path(str(get_settings().world_path))
+        print("World service initialized")
     except Exception as e:
         print(f"Failed to initialize: {e}")
         raise
-    
+
     print("="*60)
     print(f"API ready at http://{get_settings().host}:{get_settings().port}")
     print(f"Docs available at http://{get_settings().host}:{get_settings().port}/docs")
     print("="*60 + "\n")
-    
+
     yield
-    
+
     # Shutdown
     print("\n" + "="*60)
     print("Shutting down OrbisPanora API")
@@ -159,7 +170,7 @@ async def root():
 
 # Global exception handler
 @app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
+async def global_exception_handler(_request, exc):
     """Handle all uncaught exceptions."""
     return JSONResponse(
         status_code=500,

@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 from orbispanora_api.cli import app
 from orbispanora_api.settings import APP_VERSION, get_settings
 
-REGION_FILE = Path(__file__).resolve().parents[2] / "lib" / "tests" / "world_files" / "r.0.0.mca"
+REGION_FILE = Path(__file__).resolve().parent / "world_files" / "r.0.0.mca"
 
 runner = CliRunner()
 

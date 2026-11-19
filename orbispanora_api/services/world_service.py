@@ -3,304 +3,190 @@ World service for managing Minecraft world instance.
 Singleton pattern to ensure only one World instance is loaded.
 """
 
-from typing import Optional
-from ..models.responses import WorldInfoResponse, ChunkDataResponse, AreaHeightmapResponse, TileDataResponse, BlockDataResponse, BiomeDataResponse
-from anvil import World
-from ..settings import get_settings
-import os
-import zipfile
-import tempfile
-import shutil
-import concurrent.futures
 import asyncio
-import time
+import concurrent.futures
+import os
+import shutil
+import tempfile
 import traceback
+import zipfile
+from typing import Optional
+
 import numpy as np
+from orbispanora_lib.anvil import Chunk, OldBlock, World
+
+from ..models.responses import (
+    AreaHeightmapResponse,
+    BiomeDataResponse,
+    BlockDataResponse,
+    ChunkDataResponse,
+    TileDataResponse,
+    WorldInfoResponse,
+)
+from ..settings import get_settings
+from ..utils.errors import WorldNotLoadedError
 
 # Global cache for World instances in worker process
 _worker_worlds = {}
 
-def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
-    """
-    Worker function to generate render data in a separate process.
-    """
-    try:
-        # Check cache/Re-instantiate World for this process
-        global _worker_worlds
-        cache_key = (world_path, dimension)
-        
-        if cache_key not in _worker_worlds:
+def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int) -> Optional[dict]:
+    """Surface blocks of a chunk with their isometric screen positions, or None if the chunk does not exist."""
+    chunk = world.get_chunk(chunk_x, chunk_z)
+    if not isinstance(chunk, Chunk):
+        return None
 
-            _worker_worlds[cache_key] = World(world_path, dimension=dimension)
-            
-        world = _worker_worlds[cache_key]
-        
-        chunk = world.get_chunk(chunk_x, chunk_z)
-        if chunk is None:
+    isometric_blocks = []
+    min_value = 320
+    max_value = -64
+
+    # Optimize lookups with Sets
+    AIR = {'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air'}
+    INVISIBLE = {
+        'minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves',
+        'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves',
+        'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
+        'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass',
+        'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
+        'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch'
+    }
+    # Water is intentionally NOT in INVISIBLE to act as a surface (min_value anchor)
+
+    global_biome_x = chunk_x * 16
+    global_biome_z = chunk_z * 16
+
+    # Pass 1: Find min/max height (Safe Section Skip + Column Optimization)
+    # Pre-calculate active sections (check only existence, NO palette access)
+    active_sections = []
+    for sy in range(19, -5, -1):
+        try:
+            if chunk.get_section(sy):
+                active_sections.append(sy)
+        except Exception:
+            pass
+
+    if not active_sections:
+         # Fast exit for empty chunks
+        if min_value > max_value:
             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
-        render_blocks = []
-        
-        AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
-        INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
-                      'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
-                      'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-                      'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
-                      'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
-                      'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
+    for z in range(16):
+        for x in range(16):
+            col_found_surface = False
 
-        global_biome_x = chunk_x * 16
-        global_biome_z = chunk_z * 16
+            # Iterate only active sections for this column
+            for sy in active_sections:
+                y_start = sy * 16 + 15
+                y_end = sy * 16
+                y_start = min(y_start, 319)
+                y_end = max(y_end, -64)
 
-        # Initialize bounds BEFORE usage to prevent UnboundLocalError
-        min_screen_x = float('inf')
-        max_screen_x = float('-inf')
-        min_screen_y = float('inf')
-        max_screen_y = float('-inf')
-
-        # First pass: find lowest surface block and max height
-        min_value = 320
-        max_value = -64
-
-        for z in range(16):
-            for x in range(16):
-                for y in range(320, -64, -1):
+                for y in range(y_start, y_end - 1, -1):
                     try:
-                        block = chunk.get_block(x, y, z)
+                        block = chunk.get_block(x, y, z, force_new=True)
                         if block:
-                            if block.name() not in INVISIBLE:
-                                if y < min_value:
-                                    min_value = y
-                            if block.name() not in AIR:
-                                if y > max_value:
-                                    max_value = y
+                            name = block.name()
+                            if name not in INVISIBLE:
+                                min_value = min(min_value, y)
+
+                            if name not in AIR:
+                                max_value = max(max_value, y)
+                                col_found_surface = True
                                 break
-                    except:
-                        continue
-        
-        # If no blocks found
-        if min_value > max_value:
-             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-        # Second pass: select all blocks
-        for z in range(16):
-            for x in range(16):
-                global_x = global_biome_x + x
-                global_z = global_biome_z + z
-                
-                for y in range(min_value, max_value + 1, 1):
-                    try:
-                        block = chunk.get_block(x, y, z)
-                        if block and block.name() not in AIR:
-                            k = y
-                            x_final = 16 * (global_x - global_z)
-                            y_final = 8 * (global_x + global_z) - 16 * k -min_value*16
-                            x_final = round(x_final * 100) / 100
-                            y_final = round(y_final * 100) / 100
-
-                            block_name = block.name().split(":")[1]
-                            sprite_key = f"{block_name}.webp"
-
-                            render_blocks.append([sprite_key, x_final, y_final])
-
-                            min_screen_x = min(min_screen_x, x_final)
-                            max_screen_x = max(max_screen_x, x_final + 32)
-                            min_screen_y = min(min_screen_y, y_final)
-                            max_screen_y = max(max_screen_y, y_final + 32)
-                    except:
+                    except Exception:
                         continue
 
-        sprites_needed = set(b[0] for b in render_blocks)
-        sprites = {key: {"id": key} for key in sprites_needed}
+                if col_found_surface:
+                    break # Stop checking lower sections for this column
 
-        if min_screen_x == float('inf'):
-            min_screen_x = 0
-            max_screen_x = 100
-            min_screen_y = 0
-            max_screen_y = 100
-
+    if min_value > max_value:
+         # Logic from legacy: return empty or default if no valid range found
+         # Legacy returned: "palette": min_value (which would be 320)
         return {
-            "blocks": render_blocks,
-            "sprites": sprites,
-            "bounds": {
-                "min_x": min_screen_x,
-                "max_x": max_screen_x,
-                "min_y": min_screen_y,
-                "max_y": max_screen_y
-            }
+            "chunk_x": chunk_x, "chunk_z": chunk_z, "heightmap": 0,
+            "surface_blocks": [], "sections": None, "palette": min_value
         }
 
-    except Exception as e:
-        print(f"Worker error for chunk ({chunk_x}, {chunk_z}): {e}")
+    cpt = 0
+    raw_blocks = [] # For NumPy batching
 
-        return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+    # Pass 2: Extract Blocks
+    # Logic: From min_value to max_value, find first solid block, then take everything above it.
+    for z in range(16):
+        for x in range(16):
+            # We scan UP from the global min_value
+            for y in range(min_value, max_value + 1):
+                try:
+                    block = chunk.get_block(x, y, z, force_new=True)
+                    # Identify the "base" of the column
+                    if block and block.name() not in AIR:
+                        # Extract everything from here up to max_value
+                        for depth_y in range(y, max_value + 1):
+                            try:
+                                depth_block = chunk.get_block(x, depth_y, z, force_new=True)
+                                if depth_block and depth_block.name() not in AIR:
+                                    raw_blocks.append((x, depth_y, z, depth_block.name()))
+                                    cpt += 1
+                            except Exception:
+                                pass
+                        break # Move to next column
+                except Exception:
+                    continue
+
+    # Vectorized Projection using NumPy
+    if raw_blocks:
+        blocks_arr = np.array([b[:3] for b in raw_blocks], dtype=np.int32)
+        block_names = [b[3] for b in raw_blocks]
+
+        xs = blocks_arr[:, 0]
+        ys = blocks_arr[:, 1]
+        zs = blocks_arr[:, 2]
+
+        global_xs = xs + global_biome_x
+        global_zs = zs + global_biome_z
+
+        # Logic from legacy:
+        # k = abs(depth_y - min_value)
+        # x_final = 16 * (global_x - global_z)
+        # y_final = (8 * (global_x + global_z) - 16 * k) - min_value * 16
+
+        ks = np.abs(ys - min_value)
+
+        # Vectorized math
+        x_finals = 16 * (global_xs - global_zs)
+        y_finals = (8 * (global_xs + global_zs) - 16 * ks) - (min_value * 16)
+
+        # Rounding to match legacy (round(x*100)/100)
+        x_finals = np.round(x_finals * 100) / 100
+        y_finals = np.round(y_finals * 100) / 100
+
+        for i, name in enumerate(block_names):
+            short_name = name.split(":")[1]
+            isometric_blocks.append([f"{short_name}.webp", float(x_finals[i]), float(y_finals[i])])
+
+    return {
+        "chunk_x": chunk_x,
+        "chunk_z": chunk_z,
+        "heightmap": cpt,
+        "surface_blocks": isometric_blocks,
+        "sections": None,
+        "palette": min_value
+    }
 
 
-def _worker_get_chunk_isometric(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
+def _worker_get_chunk_isometric(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> Optional[dict]:
     """
     Worker function to get chunk data in isometric mode in a separate process.
     This allows multiple chunk requests to run in parallel.
     """
     try:
-        # Check cache/Re-instantiate World for this process
-        global _worker_worlds
         cache_key = (world_path, dimension)
-        
         if cache_key not in _worker_worlds:
             _worker_worlds[cache_key] = World(world_path, dimension=dimension)
-            
-        world = _worker_worlds[cache_key]
-        
-        chunk = world.get_chunk(chunk_x, chunk_z)
-        if chunk is None:
-            return None
-        
-        isometric_blocks = []
-        min_value = 320
-        max_value = -64
-
-        # Optimize lookups with Sets
-        AIR = {'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air'}
-        INVISIBLE = {
-            'minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
-            'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
-            'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-            'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 
-            'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
-            'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch'
-        }
-        # Water is intentionally NOT in INVISIBLE to act as a surface (min_value anchor)
-
-        global_biome_x = chunk_x * 16
-        global_biome_z = chunk_z * 16
-
-        # Pass 1: Find min/max height (Safe Section Skip + Column Optimization)
-        # Pre-calculate active sections (check only existence, NO palette access)
-        active_sections = []
-        for sy in range(19, -5, -1):
-            try:
-                if chunk.get_section(sy):
-                    active_sections.append(sy)
-            except: pass
-        
-        if not active_sections:
-             # Fast exit for empty chunks
-             if min_value > max_value:
-                 return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-        for z in range(16):
-            for x in range(16):
-                col_found_surface = False
-                
-                # Iterate only active sections for this column
-                for sy in active_sections:
-                    y_start = sy * 16 + 15
-                    y_end = sy * 16
-                    if y_start > 319: y_start = 319
-                    if y_end < -64: y_end = -64
-                    
-                    for y in range(y_start, y_end - 1, -1):
-                        try:
-                            block = chunk.get_block(x, y, z)
-                            if block:
-                                name = block.name()
-                                if name not in INVISIBLE:
-                                    if y < min_value:
-                                        min_value = y
-                                
-                                if name not in AIR:
-                                    has_blocks = True
-                                    if y > max_value:
-                                        max_value = y
-                                    col_found_surface = True
-                                    break
-                        except:
-                            continue
-                    
-                    if col_found_surface:
-                        break # Stop checking lower sections for this column
-
-        if min_value > max_value:
-             # Logic from legacy: return empty or default if no valid range found
-             # Legacy returned: "palette": min_value (which would be 320)
-             return {
-                "chunk_x": chunk_x, "chunk_z": chunk_z, "heightmap": 0,
-                "surface_blocks": [], "sections": None, "palette": min_value
-            }
-
-        cpt = 0
-        raw_blocks = [] # For NumPy batching
-
-        # Pass 2: Extract Blocks
-        # Logic: From min_value to max_value, find first solid block, then take everything above it.
-        for z in range(16):
-            for x in range(16):
-                # We scan UP from the global min_value
-                for y in range(min_value, max_value + 1):
-                    try:
-                        block = chunk.get_block(x, y, z)
-                        # Identify the "base" of the column
-                        if block and block.name() not in AIR:
-                            # Extract everything from here up to max_value
-                            for depth_y in range(y, max_value + 1):
-                                try:
-                                    depth_block = chunk.get_block(x, depth_y, z)
-                                    if depth_block and depth_block.name() not in AIR:
-                                        raw_blocks.append((x, depth_y, z, depth_block.name()))
-                                        cpt += 1
-                                except: pass
-                            break # Move to next column
-                    except: continue
-
-        # Vectorized Projection using NumPy
-        if raw_blocks:
-            blocks_arr = np.array([b[:3] for b in raw_blocks], dtype=np.int32)
-            block_names = [b[3] for b in raw_blocks]
-            
-            xs = blocks_arr[:, 0]
-            ys = blocks_arr[:, 1]
-            zs = blocks_arr[:, 2]
-            
-            global_xs = xs + global_biome_x
-            global_zs = zs + global_biome_z
-            
-            # Logic from legacy:
-            # k = abs(depth_y - min_value)
-            # x_final = 16 * (global_x - global_z)
-            # y_final = (8 * (global_x + global_z) - 16 * k) - min_value * 16
-            
-            ks = np.abs(ys - min_value)
-            
-            # Vectorized math
-            x_finals = 16 * (global_xs - global_zs)
-            y_finals = (8 * (global_xs + global_zs) - 16 * ks) - (min_value * 16)
-            
-            # Rounding to match legacy (round(x*100)/100)
-            x_finals = np.round(x_finals * 100) / 100
-            y_finals = np.round(y_finals * 100) / 100
-            
-            for i, name in enumerate(block_names):
-                short_name = name.split(":")[1]
-                isometric_blocks.append([f"{short_name}.webp", float(x_finals[i]), float(y_finals[i])])
-
-        return {
-            "chunk_x": chunk_x,
-            "chunk_z": chunk_z,
-            "heightmap": cpt,
-            "surface_blocks": isometric_blocks,
-            "sections": None,
-            "palette": min_value
-        }
-
+        return _isometric_chunk_data(_worker_worlds[cache_key], chunk_x, chunk_z)
     except Exception as e:
         print(f"Worker error for isometric chunk ({chunk_x}, {chunk_z}): {e}")
         return None
 
-
-import concurrent.futures
-import asyncio
-import time
-import traceback
 
 def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
     """
@@ -309,18 +195,18 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
     try:
         # Re-instantiate World for this process
         world = World(world_path, dimension=dimension)
-        
+
         chunk = world.get_chunk(chunk_x, chunk_z)
-        if chunk is None:
+        if not isinstance(chunk, Chunk):
             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
         render_blocks = []
-        
+
         AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
-        INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
-                      'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
+        INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves',
+                      'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves',
                       'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-                      'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water', 
+                      'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water',
                       'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
                       'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
 
@@ -341,31 +227,29 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
             for x in range(16):
                 for y in range(320, -64, -1):
                     try:
-                        block = chunk.get_block(x, y, z)
+                        block = chunk.get_block(x, y, z, force_new=True)
                         if block:
                             if block.name() not in INVISIBLE:
-                                if y < min_value:
-                                    min_value = y
+                                min_value = min(min_value, y)
                             if block.name() not in AIR:
-                                if y > max_value:
-                                    max_value = y
+                                max_value = max(max_value, y)
                                 break
-                    except:
+                    except Exception:
                         continue
-        
+
         # If no blocks found
         if min_value > max_value:
-             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
         # Second pass: select all blocks
         for z in range(16):
             for x in range(16):
                 global_x = global_biome_x + x
                 global_z = global_biome_z + z
-                
+
                 for y in range(min_value, max_value + 1, 1):
                     try:
-                        block = chunk.get_block(x, y, z)
+                        block = chunk.get_block(x, y, z, force_new=True)
                         if block and block.name() not in AIR:
                             k = y
                             x_final = 16 * (global_x - global_z)
@@ -382,7 +266,7 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
                             max_screen_x = max(max_screen_x, x_final + 32)
                             min_screen_y = min(min_screen_y, y_final)
                             max_screen_y = max(max_screen_y, y_final + 32)
-                    except:
+                    except Exception:
                         continue
 
         sprites_needed = set(b[0] for b in render_blocks)
@@ -413,33 +297,32 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
 
 class WorldService:
     """Singleton service for managing Minecraft world."""
-    
+
     _instance: Optional['WorldService'] = None
     _world: Optional[World] = None
     _world_path: Optional[str] = None
     _executor: Optional[concurrent.futures.ProcessPoolExecutor] = None
 
 
-    
+
     def __new__(cls):
         """Ensure only one instance exists (singleton pattern)."""
         if cls._instance is None:
             cls._instance = super(WorldService, cls).__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         """Initialize world service."""
         # Initialize executor for async tasks
         if self._executor is None:
             self._executor = concurrent.futures.ProcessPoolExecutor(max_workers=8)
-        pass
 
     def shutdown(self):
         """Stop the worker processes. Called when the application shuts down."""
         if self._executor is not None:
             self._executor.shutdown(wait=True, cancel_futures=True)
             self._executor = None
-    
+
     def _load_world(self):
         """Load the Minecraft world."""
         try:
@@ -453,27 +336,29 @@ class WorldService:
                 dimension=get_settings().world_dimension
             )
             self._world_path = world_path
-            print(f"World loaded successfully")
+            print("World loaded successfully")
         except Exception as e:
             print(f"Failed to load world: {e}")
             raise
-    
+
     @property
     def world(self) -> World:
         """Get the world instance with lazy loading."""
         if self._world is None:
             self._load_world()
+        if self._world is None:
+            raise WorldNotLoadedError()
         return self._world
-    
+
     @property
     def world_path(self) -> Optional[str]:
         """Get the path to the currently loaded world."""
         return self._world_path
-    
-    def load_world_from_path(self, world_path: str, dimension: str = None):
+
+    def load_world_from_path(self, world_path: str, dimension: Optional[str] = None):
         """
         Load a world from a specific path.
-        
+
         Args:
             world_path: Path to the world directory
             dimension: Dimension to load (defaults to get_settings().world_dimension)
@@ -481,7 +366,7 @@ class WorldService:
         try:
             if dimension is None:
                 dimension = get_settings().world_dimension
-            
+
             print(f"Loading world from: {world_path} (dimension: {dimension})")
             self._world = World(
                 world_path,
@@ -493,15 +378,15 @@ class WorldService:
         except Exception as e:
             print(f"Failed to load world from {world_path}: {e}")
             raise
-    
-    def load_world_from_zip(self, zip_path: str, dimension: str = None):
+
+    def load_world_from_zip(self, zip_path: str, dimension: Optional[str] = None):
         """
         Extract a zip file containing a Minecraft world and load it.
-        
+
         Args:
             zip_path: Path to the zip file
             dimension: Dimension to load (defaults to get_settings().world_dimension)
-        
+
         Returns:
             Path to the extracted world directory
         """
@@ -509,94 +394,94 @@ class WorldService:
             # Validate zip file
             if not zipfile.is_zipfile(zip_path):
                 raise ValueError(f"File is not a valid zip file: {zip_path}")
-            
+
             # Check file size
             file_size = os.path.getsize(zip_path)
             max_size = get_settings().upload_max_size_mb * 1024 * 1024
             if file_size > max_size:
                 raise ValueError(f"Zip file too large ({file_size} bytes). Maximum allowed: {max_size} bytes")
-            
+
             # Create temp directory for extraction
             os.makedirs(get_settings().temp_world_dir, exist_ok=True)
             temp_dir = tempfile.mkdtemp(dir=get_settings().temp_world_dir)
-            
+
             print(f"Extracting world from {zip_path} to {temp_dir}")
-            
+
             # Extract zip file
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_dir)
-            
+
             # Find the world directory (could be at root or in a subdirectory)
             world_dir = self._find_world_directory(temp_dir)
             if not world_dir:
                 raise ValueError("No valid Minecraft world found in the zip file")
-            
+
             print(f"Found world directory: {world_dir}")
-            
+
             # Load the world
             self.load_world_from_path(world_dir, dimension)
-            
+
             # Clean up old temp worlds if needed
             if get_settings().cleanup_temp_files:
                 self._cleanup_old_temp_worlds()
-            
+
             return world_dir
-            
-        except Exception as e:
+
+        except Exception:
             # Clean up temp directory on failure
             if 'temp_dir' in locals():
                 shutil.rmtree(temp_dir, ignore_errors=True)
             raise
-    
+
     def _find_world_directory(self, base_path: str) -> Optional[str]:
         """
         Find the Minecraft world directory within the extracted zip.
         Looks for a directory containing 'session.lock' or 'level.dat'.
         """
-        for root, dirs, files in os.walk(base_path):
+        for root, _dirs, files in os.walk(base_path):
             # Check if this directory contains world files
             if 'level.dat' in files or 'session.lock' in files:
                 # Make sure it has a region directory (for overworld)
                 region_path = os.path.join(root, 'region')
                 if os.path.exists(region_path) and os.path.isdir(region_path):
                     return root
-        
+
         # If not found, check if the base_path itself is a world directory
         if os.path.exists(os.path.join(base_path, 'level.dat')):
             return base_path
-            
+
         return None
-    
+
     def _cleanup_old_temp_worlds(self):
         """Clean up old temporary world directories."""
         try:
             if not os.path.exists(get_settings().temp_world_dir):
                 return
-                
-            temp_dirs = [d for d in os.listdir(get_settings().temp_world_dir) 
+
+            temp_dirs = [d for d in os.listdir(get_settings().temp_world_dir)
                         if os.path.isdir(os.path.join(get_settings().temp_world_dir, d))]
-            
+
             if len(temp_dirs) > get_settings().max_temp_worlds:
                 # Sort by modification time (oldest first)
                 temp_dirs.sort(key=lambda d: os.path.getmtime(os.path.join(get_settings().temp_world_dir, d)))
-                
+
                 # Remove oldest directories
                 dirs_to_remove = temp_dirs[:-get_settings().max_temp_worlds]
                 for dir_name in dirs_to_remove:
                     dir_path = os.path.join(get_settings().temp_world_dir, dir_name)
                     print(f"Cleaning up old temp world: {dir_path}")
                     shutil.rmtree(dir_path, ignore_errors=True)
-                    
+
         except Exception as e:
             print(f"Error during cleanup: {e}")
-    
-    def get_world_info(self) -> dict:
+
+    def get_world_info(self) -> Optional[WorldInfoResponse]:
         """Get world information using the library's method."""
         try:
             world_info_dict = self.world.get_world_info()
             if not world_info_dict:
                 return None
-            
+
             # Map anvil library fields to our response model
             mapped_info = {
                 "dimension": world_info_dict.get("dimension", "overworld"),
@@ -611,25 +496,25 @@ class WorldService:
                     "region_cache_size": world_info_dict.get("region_cache_size", 0)
                 } if world_info_dict.get("cache_enabled") else None
             }
-            
+
             return WorldInfoResponse(**mapped_info)
         except Exception as e:
             print(f"Error getting world info: {e}")
             return None
-    
+
     def is_loaded(self) -> bool:
         """Check if world is loaded without triggering loading."""
         return self._world is not None
-    
-    def get_chunk_data(self, chunk_x: int, chunk_z: int, chunk_h: int = 0, mode: str = 'heightmap'):
+
+    def get_chunk_data(self, chunk_x: int, chunk_z: int, _chunk_h: int = 0, mode: str = 'heightmap') -> Optional[ChunkDataResponse]:
         """
         Get chunk data in various formats.
-        
+
         Args:
             chunk_x: Chunk X coordinate
             chunk_z: Chunk Z coordinate
             mode: Data format ('heightmap', 'surface', 'isometric', 'simplified', 'full')
-        
+
         Returns:
             ChunkDataResponse object or None if chunk not found
         """
@@ -638,10 +523,10 @@ class WorldService:
                 chunk = self.world.get_chunk(chunk_x, chunk_z)
             except Exception:
                 chunk = None
-                
-            if chunk is None:
+
+            if not isinstance(chunk, Chunk):
                 return None
-            
+
             if mode == "heightmap":
                 try:
                     # Get heightmap (topmost solid blocks)
@@ -653,7 +538,7 @@ class WorldService:
                             height = 0
                             for y in range(320, -64, -1):  # From top to bottom
                                 try:
-                                    block = chunk.get_block(x, y, z)
+                                    block = chunk.get_block(x, y, z, force_new=True)
                                     if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
                                         height = y
                                         break
@@ -661,7 +546,7 @@ class WorldService:
                                     pass
                             height_row.append(height)
                         heightmap.append(height_row)
-                    
+
                     return ChunkDataResponse(
                         chunk_x=chunk_x,
                         chunk_z=chunk_z,
@@ -672,10 +557,9 @@ class WorldService:
                     )
                 except Exception as e:
                     print(f"Error generating heightmap for chunk ({chunk_x}, {chunk_z}): {e}")
-                    import traceback
                     traceback.print_exc()
                     return None
-            
+
             elif mode == "surface":
                 # Get surface blocks with biomes
                 surface_blocks = []
@@ -684,13 +568,13 @@ class WorldService:
                         # Find the topmost solid block
                         for y in range(320, -64, -1):
                             try:
-                                block = chunk.get_block(x, y, z)
+                                block = chunk.get_block(x, y, z, force_new=True)
                                 if block and block.name() not in ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']:
                                     # Get biome at this position
                                     global_x = chunk_x * 16 + x
                                     global_z = chunk_z * 16 + z
                                     biome = self.world.get_biome(global_x, y, global_z)
-                                    
+
                                     surface_blocks.append({
                                         "x": global_x,
                                         "y": y,
@@ -699,9 +583,9 @@ class WorldService:
                                         "biome": biome.name() if biome else "unknown"
                                     })
                                     break
-                            except:
+                            except Exception:
                                 continue
-                
+
                 return ChunkDataResponse(
                     chunk_x=chunk_x,
                     chunk_z=chunk_z,
@@ -710,137 +594,16 @@ class WorldService:
                     sections=None,
                     palette=None
                 )
-            
+
             # Isometric mode: optimized block extraction for 2.5D view
             elif mode == "isometric":
-                isometric_blocks = []
-                min_value = 320
-                max_value = -64
+                data = _isometric_chunk_data(self.world, chunk_x, chunk_z)
+                return None if data is None else ChunkDataResponse(**data)
 
-                # Optimize lookups with Sets
-                AIR = {'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air'}
-                INVISIBLE = {
-                    'minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves', 
-                    'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves', 
-                    'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-                    'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 
-                    'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
-                    'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch'
-                }
-
-                global_biome_x = chunk_x * 16
-                global_biome_z = chunk_z * 16
-
-                has_blocks = False
-                
-                # Pass 1: Find min/max height (Safe Section Skip + Column Optimization)
-                # Pre-calculate active sections (check only existence, NO palette access)
-                active_sections = []
-                for sy in range(19, -5, -1):
-                    try:
-                        if chunk.get_section(sy):
-                            active_sections.append(sy)
-                    except: pass
-                
-                if not active_sections:
-                     # Fast exit for empty chunks
-                     if min_value > max_value:
-                         return ChunkDataResponse(
-                            chunk_x=chunk_x, chunk_z=chunk_z, heightmap=0,
-                            surface_blocks=[], sections=None, palette=min_value
-                        )
-
-                for z in range(16):
-                    for x in range(16):
-                        col_found_surface = False
-                        
-                        # Iterate only active sections for this column
-                        for sy in active_sections:
-                            y_start = sy * 16 + 15
-                            y_end = sy * 16
-                            if y_start > 319: y_start = 319
-                            if y_end < -64: y_end = -64
-                            
-                            for y in range(y_start, y_end - 1, -1):
-                                try:
-                                    block = chunk.get_block(x, y, z)
-                                    if block:
-                                        name = block.name()
-                                        if name not in INVISIBLE:
-                                            if y < min_value:
-                                                min_value = y
-                                        
-                                        if name not in AIR:
-                                            has_blocks = True
-                                            if y > max_value:
-                                                max_value = y
-                                            col_found_surface = True
-                                            break
-                                except:
-                                    continue
-                            
-                            if col_found_surface:
-                                break # Stop checking lower sections for this column
-
-                cpt = 0
-                
-                if min_value <= max_value:
-                    raw_blocks = [] # For NumPy batching
-
-                    # Pass 2: Extract Blocks
-                    for z in range(16):
-                        for x in range(16):
-                            for y in range(min_value, max_value + 1):
-                                try:
-                                    block = chunk.get_block(x, y, z)
-                                    if block and block.name() not in AIR:
-                                        for depth_y in range(y, max_value + 1):
-                                            try:
-                                                depth_block = chunk.get_block(x, depth_y, z)
-                                                if depth_block and depth_block.name() not in AIR:
-                                                    raw_blocks.append((x, depth_y, z, depth_block.name()))
-                                                    cpt += 1
-                                            except: pass
-                                        break
-                                except: continue
-
-                    # Vectorized Projection using NumPy
-                    if raw_blocks:
-                        blocks_arr = np.array([b[:3] for b in raw_blocks], dtype=np.int32)
-                        block_names = [b[3] for b in raw_blocks]
-                        
-                        xs = blocks_arr[:, 0]
-                        ys = blocks_arr[:, 1]
-                        zs = blocks_arr[:, 2]
-                        
-                        global_xs = xs + global_biome_x
-                        global_zs = zs + global_biome_z
-                        
-                        ks = np.abs(ys - min_value)
-                        
-                        x_finals = 16 * (global_xs - global_zs)
-                        y_finals = (8 * (global_xs + global_zs) - 16 * ks) - (min_value * 16)
-                        
-                        x_finals = np.round(x_finals * 100) / 100
-                        y_finals = np.round(y_finals * 100) / 100
-                        
-                        for i, name in enumerate(block_names):
-                            short_name = name.split(":")[1]
-                            isometric_blocks.append([f"{short_name}.webp", float(x_finals[i]), float(y_finals[i])])
-                
-                return ChunkDataResponse(
-                    chunk_x=chunk_x,
-                    chunk_z=chunk_z,
-                    heightmap=cpt,
-                    surface_blocks=isometric_blocks,
-                    sections=None,
-                    palette=min_value
-                )
-            
             elif mode == "render":
                 # Fully optimized for 2D isometric rendering - pre-calculated positions and sprites
                 render_data = self._generate_render_data(chunk_x, chunk_z)
-                
+
                 return ChunkDataResponse(
                     chunk_x=chunk_x,
                     chunk_z=chunk_z,
@@ -850,21 +613,37 @@ class WorldService:
                     palette=None,
                     render_data=render_data  # Custom field for render mode
                 )
-                
+
+            elif mode in ("simplified", "full"):
+                # The library reads the sections; the palette is the block names they use.
+                full = self.world.get_chunk_data(chunk_x, chunk_z, "full")
+                if full is None:
+                    return None
+                sections = _plain(full["sections"])
+                palette = sorted({entry["name"] for section in sections for entry in section.get("palette", [])})
+                return ChunkDataResponse(
+                    chunk_x=chunk_x,
+                    chunk_z=chunk_z,
+                    heightmap=None,
+                    surface_blocks=None,
+                    sections=sections if mode == "full" else None,
+                    palette=palette
+                )
+
         except Exception as e:
             print(f"Error getting chunk data: {e}")
             return None
-    
+
     async def get_render_data_async(self, chunk_x: int, chunk_z: int) -> dict:
         """
         Get render data asynchronously using process pool.
         """
         if not self.world_path:
             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-            
+
         loop = asyncio.get_event_loop()
         dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
-        
+
         try:
             return await loop.run_in_executor(
                 self._executor,
@@ -882,26 +661,26 @@ class WorldService:
         """
         Get chunk data asynchronously using process pool.
         This allows multiple chunk requests to run in parallel instead of waiting for each other.
-        
+
         Args:
             chunk_x: Chunk X coordinate
             chunk_z: Chunk Z coordinate
             chunk_h: Height parameter
             mode: Data format (currently only 'isometric' is optimized for async)
-        
+
         Returns:
             ChunkDataResponse object or None if chunk not found
         """
         if mode != "isometric":
             # For other modes, fall back to synchronous version
             return self.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
-        
+
         if not self.world_path:
             return None
-            
+
         loop = asyncio.get_event_loop()
         dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
-        
+
         try:
             result = await loop.run_in_executor(
                 self._executor,
@@ -911,10 +690,10 @@ class WorldService:
                 chunk_x,
                 chunk_z
             )
-            
+
             if result is None:
                 return None
-            
+
             return ChunkDataResponse(
                 chunk_x=result["chunk_x"],
                 chunk_z=result["chunk_z"],
@@ -934,12 +713,12 @@ class WorldService:
         # For synchronous calls, we unfortunately have to run it inline or block
         # Using the worker directly to share logic
         if not self.world_path:
-             return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-        
+            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+
         dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
         return _worker_generate_render_data(self.world_path, dimension, chunk_x, chunk_z)
 
-    
+
     def _get_sprite_key(self, block_name: str, biome_name: str) -> str:
         """Generate a unique key for sprite caching based on block and biome."""
         # Simplified sprite key generation
@@ -966,12 +745,12 @@ class WorldService:
             return "oak_leaves"
         else:
             return "unknown_block"
-    
+
     def _get_sprite_data(self, sprite_key: str) -> dict:
         """Return sprite data (could be base64 image or URL to pre-generated sprite)."""
         # For now, return color data that can be used to generate CSS/styled divs
         # In production, this would return base64-encoded images or URLs
-        
+
         sprite_colors = {
             "grass_plains": {"color": "#4CAF50", "border": "#2E7D32"},
             "grass_taiga": {"color": "#388E3C", "border": "#1B5E20"},
@@ -984,79 +763,89 @@ class WorldService:
             "oak_leaves": {"color": "#4CAF50", "border": "#2E7D32"},
             "unknown_block": {"color": "#666666", "border": "#424242"}
         }
-        
+
         return sprite_colors.get(sprite_key, sprite_colors["unknown_block"])
-    
-    def get_area_heightmap(self, x1: int, z1: int, x2: int, z2: int) -> dict:
+
+    def get_area_heightmap(self, x1: int, z1: int, x2: int, z2: int) -> Optional[AreaHeightmapResponse]:
         """
         Get heightmap for an area.
-        
+
         Args:
             x1, z1: Minimum block coordinates
             x2, z2: Maximum block coordinates
-        
+
         Returns:
             Area heightmap dictionary
         """
         area_heightmap_dict = self.world.get_area_heightmap(x1, z1, x2, z2)
         return AreaHeightmapResponse(**area_heightmap_dict) if area_heightmap_dict else None
-    
-    def get_tile_data(self, tile_x: int, tile_z: int, tile_size: int = 16) -> dict:
+
+    def get_tile_data(self, tile_x: int, tile_z: int, tile_size: int = 16) -> Optional[TileDataResponse]:
         """
         Get tile data for progressive loading.
-        
+
         Args:
             tile_x: Tile X coordinate
             tile_z: Tile Z coordinate
             tile_size: Number of chunks per tile side
-        
+
         Returns:
             Tile data dictionary with all chunks
         """
         tile_data_dict = self.world.get_tile_data(tile_x, tile_z, tile_size)
         return TileDataResponse(**tile_data_dict) if tile_data_dict else None
 
-    def get_block_data(self, block_x: int, block_y: int, block_z: int) -> dict:
+    def get_block_data(self, block_x: int, block_y: int, block_z: int) -> Optional[BlockDataResponse]:
         """
         Get block data at specified coordinates.
-        
+
         Args:
             block_x: Block X coordinate
             block_y: Block Y coordinate
             block_z: Block Z coordinate
-        
+
         Returns:
             Block data dictionary or None if block not found
         """
         block = self.world.get_block(block_x, block_y, block_z)
-        block_data_dict = {
-            "block_x": block_x,
-            "block_y": block_y,
-            "block_z": block_z,
-            "id": str(block.id),
-            "properties": {str(key): str(value) for key, value in block.properties.items()}
-        }
-        return BlockDataResponse(**block_data_dict) if block_data_dict else None
-    
-    def get_biome_data(self, biome_x: int, biome_y: int, biome_z: int) -> dict:
+        if block is None:
+            return None
+        if isinstance(block, OldBlock):
+            block = block.convert()
+        return BlockDataResponse(
+            block_x=block_x,
+            block_y=block_y,
+            block_z=block_z,
+            id=str(block.id),
+            properties={str(key): str(value) for key, value in block.properties.items()},
+        )
+
+    def get_biome_data(self, biome_x: int, biome_y: int, biome_z: int) -> Optional[BiomeDataResponse]:
         """
         Get biome data at specified coordinates.
-        
+
         Args:
             biome_x: Biome X coordinate
             biome_z: Biome Z coordinate
-        
+
         Returns:
             Biome data dictionary or None if biome not found
         """
         biome = self.world.get_biome(biome_x, biome_y, biome_z)
-        biome_data_dict = {
-            "biome_x": biome_x,
-            "biome_y": biome_y,
-            "biome_z": biome_z,
-            "id": str(biome.id),
-        }
-        return BiomeDataResponse(**biome_data_dict) if biome_data_dict else None
+        if biome is None:
+            return None
+        return BiomeDataResponse(biome_x=biome_x, biome_y=biome_y, biome_z=biome_z, id=str(biome.id))
+
+def _plain(value):
+    """`value` with NBT tags replaced by their Python values, so that it can be sent as JSON."""
+    if isinstance(value, dict):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return _plain(value.value) if hasattr(value, "value") else str(value)
+
 
 _world_service: Optional[WorldService] = None
 
