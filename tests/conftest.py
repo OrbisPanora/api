@@ -47,7 +47,8 @@ def make_client(monkeypatch, tmp_path):
         monkeypatch.delenv("ORBISPANORA_WORLD_PATH", raising=False)
         if world_path is not None:
             monkeypatch.setenv("ORBISPANORA_WORLD_PATH", str(world_path))
-        monkeypatch.setenv("ORBISPANORA_TEMP_WORLD_DIR", str(tmp_path / "uploads"))
+        monkeypatch.setenv("ORBISPANORA_TEMP_WORLD_DIR", str(tmp_path / "worlds"))
+        monkeypatch.setenv("ORBISPANORA_UPLOAD_CHUNKS_DIR", str(tmp_path / "chunks"))
         get_settings.cache_clear()
         _reset_services()
         from orbispanora_api.main import app  # pylint: disable=import-outside-toplevel

@@ -4,6 +4,7 @@ Provides chunk data in various formats for the isometric viewer.
 """
 
 import asyncio
+import logging
 import time
 from datetime import UTC, datetime
 from typing import Literal
@@ -18,6 +19,11 @@ from ..models.responses import (
 )
 from ..services.world_service import WorldService, get_world_service
 from ..utils.errors import WorldNotLoadedError
+
+LOGGER = logging.getLogger(__name__)
+
+#: Largest side of an area heightmap, in blocks.
+MAX_AREA_SIDE = 1024
 
 router = APIRouter(
     prefix="/api/chunks",
@@ -243,9 +249,10 @@ async def get_tile(
         raise
 
     except Exception as e:
+        LOGGER.exception("Failed to get tile data")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get tile data: {str(e)}"
+            detail="Failed to get tile data"
         ) from e
 
 
@@ -336,9 +343,10 @@ async def get_chunk(
         ) from e
 
     except Exception as e:
+        LOGGER.exception("Failed to get chunk data")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get chunk data: {str(e)}"
+            detail="Failed to get chunk data"
         ) from e
 
 
@@ -370,6 +378,12 @@ async def get_area_heightmap(
 
     **Note:** Large areas may take longer to process. Consider using tiles for very large regions.
     """
+    if x2 < x1 or z2 < z1 or x2 - x1 >= MAX_AREA_SIDE or z2 - z1 >= MAX_AREA_SIDE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The area must have x2 >= x1, z2 >= z1 and at most {MAX_AREA_SIDE} blocks per side"
+        )
+
     try:
         if not world_service.is_loaded():
             raise WorldNotLoadedError()
@@ -405,7 +419,8 @@ async def get_area_heightmap(
         raise
 
     except Exception as e:
+        LOGGER.exception("Failed to get area heightmap")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get area heightmap: {str(e)}"
+            detail="Failed to get area heightmap"
         ) from e

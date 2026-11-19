@@ -3,6 +3,7 @@ Biom endpoints for the API.
 Provides biom data in various formats for the isometric viewer.
 """
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..models.responses import APIResponse, BiomeDataResponse
 from ..services.world_service import WorldService, get_world_service
 from ..utils.errors import WorldNotLoadedError
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/biomes",
@@ -71,7 +74,8 @@ async def get_biome(
         ) from e
 
     except Exception as e:
+        LOGGER.exception("Failed to get biom data")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get biom data: {str(e)}"
+            detail="Failed to get biom data"
         ) from e

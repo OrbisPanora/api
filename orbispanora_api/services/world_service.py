@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import traceback
 import zipfile
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -25,6 +26,7 @@ from ..models.responses import (
 )
 from ..settings import get_settings
 from ..utils.errors import WorldNotLoadedError
+from .zip_safety import safe_extract
 
 # Global cache for World instances in worker process
 _worker_worlds = {}
@@ -393,23 +395,27 @@ class WorldService:
         try:
             # Validate zip file
             if not zipfile.is_zipfile(zip_path):
-                raise ValueError(f"File is not a valid zip file: {zip_path}")
+                raise ValueError("The file is not a valid zip archive")
 
             # Check file size
             file_size = os.path.getsize(zip_path)
             max_size = get_settings().upload_max_size_mb * 1024 * 1024
             if file_size > max_size:
-                raise ValueError(f"Zip file too large ({file_size} bytes). Maximum allowed: {max_size} bytes")
+                raise ValueError(f"The zip file is too large ({file_size} bytes). The maximum is {max_size} bytes")
 
             # Create temp directory for extraction
-            os.makedirs(get_settings().temp_world_dir, exist_ok=True)
+            os.makedirs(get_settings().temp_world_dir, mode=0o700, exist_ok=True)
             temp_dir = tempfile.mkdtemp(dir=get_settings().temp_world_dir)
 
             print(f"Extracting world from {zip_path} to {temp_dir}")
 
-            # Extract zip file
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
+            safe_extract(
+                Path(zip_path),
+                Path(temp_dir),
+                max_entries=get_settings().upload_max_entries,
+                max_total_bytes=get_settings().upload_max_unzipped_mb * 1024 * 1024,
+                max_ratio=get_settings().upload_max_ratio,
+            )
 
             # Find the world directory (could be at root or in a subdirectory)
             world_dir = self._find_world_directory(temp_dir)

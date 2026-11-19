@@ -28,6 +28,9 @@ except metadata.PackageNotFoundError:  # run from a source tree that is not inst
 APP_TITLE = "OrbisPanora API"
 APP_DESCRIPTION = "FastAPI backend for the OrbisPanora isometric Minecraft world viewer"
 
+#: Per-user cache directory (`$XDG_CACHE_HOME` or `~/.cache`) holding extracted worlds and uploads.
+_CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "orbispanora"
+
 #: The Minecraft dimensions the library can read.
 Dimension = Literal["overworld", "nether", "end"]
 
@@ -65,10 +68,11 @@ class Settings(BaseSettings):
 
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
 
-    #: Comma-separated in the environment (`a,b`). `*` allows every origin, which is
-    #: what the API did before this setting was applied; list the viewer's origin to
-    #: restrict it.
-    cors_origins: Annotated[list[str], NoDecode] = ["*"]
+    #: Comma-separated in the environment (`a,b`). Empty by default: the viewer reaches
+    #: the API through the same origin (its development server or its reverse proxy),
+    #: so no cross-origin access is needed. List the origins that may call the API
+    #: from another site. `*` allows every origin.
+    cors_origins: Annotated[list[str], NoDecode] = []
 
     # --- Cache ---
 
@@ -89,9 +93,22 @@ class Settings(BaseSettings):
 
     # --- Uploads ---
 
+    #: Largest zip file accepted, in one request or as the sum of its chunks.
     upload_max_size_mb: int = Field(default=500, gt=0)
-    #: Where uploaded worlds are extracted.
-    temp_world_dir: Path = Path("temp_worlds")
+    #: Limits on what a zip file may expand to. A world has a few hundred files.
+    upload_max_entries: int = Field(default=20000, gt=0)
+    upload_max_unzipped_mb: int = Field(default=4096, gt=0)
+    #: Largest ratio of unzipped to zipped size, for archives that unzip to more than 1 MB.
+    upload_max_ratio: int = Field(default=100, gt=0)
+    #: Chunked uploads: sessions open at once, how long an idle one is kept (seconds),
+    #: and the largest single chunk.
+    upload_max_sessions: int = Field(default=4, ge=1)
+    upload_session_ttl: int = Field(default=3600, gt=0)
+    upload_max_chunk_mb: int = Field(default=16, gt=0)
+    #: Where uploaded worlds are extracted. The default is in the user's cache directory.
+    temp_world_dir: Path = _CACHE_DIR / "worlds"
+    #: Where the chunks of an upload in progress are stored.
+    upload_chunks_dir: Path = _CACHE_DIR / "uploads"
     cleanup_temp_files: bool = True
     max_temp_worlds: int = Field(default=5, ge=1)
 
@@ -115,7 +132,7 @@ class Settings(BaseSettings):
         """`ORBISPANORA_WORLD_PATH=` means no world, not the current directory."""
         return None if value == "" else value
 
-    @field_validator("world_path", "resources_dir", "temp_world_dir")
+    @field_validator("world_path", "resources_dir", "temp_world_dir", "upload_chunks_dir")
     @classmethod
     def _expand_user(cls, value: Path | None) -> Path | None:
         """`~` in a path is expanded, since these are paths a person types."""
@@ -140,6 +157,9 @@ class Settings(BaseSettings):
             found.append(
                 ("warning", f"No resources directory ({self.resources_dir} is absent), so the /api/resources endpoints will fail. The web viewer does not use them and worlds load normally. Set ORBISPANORA_RESOURCES_DIR to enable them.")
             )
+
+        if self.cors_origins == ["*"]:
+            found.append(("warning", "ORBISPANORA_CORS_ORIGINS is *: any website can call this API from a visitor's browser."))
 
         if "*" in self.cors_origins and len(self.cors_origins) > 1:
             found.append(("warning", "ORBISPANORA_CORS_ORIGINS contains * and other origins; * alone applies."))

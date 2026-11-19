@@ -44,7 +44,7 @@ def test_switch_to_an_unknown_dimension(client):
 
 
 def test_switch_dimension_without_a_world(client_without_world):
-    assert client_without_world.post("/api/worlds/dimension", params={"dimension": "nether"}).status_code >= 400
+    assert client_without_world.post("/api/worlds/dimension", params={"dimension": "nether"}).status_code == 503
 
 
 def test_block(client):

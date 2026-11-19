@@ -7,7 +7,8 @@ import time
 from collections import defaultdict
 from typing import Dict, Tuple
 
-from fastapi import HTTPException, Request, status
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
@@ -16,6 +17,9 @@ class RateLimiter:
     Rate limiter using sliding window algorithm.
     Tracks requests per IP address.
     """
+
+    #: Clients with no request in the window are forgotten after this many calls.
+    CLEANUP_EVERY = 1000
 
     def __init__(self, requests: int, window: int):
         """
@@ -32,6 +36,7 @@ class RateLimiter:
         self.window = window
         self._requests: Dict[str, list[float]] = defaultdict(list)
         self._lock = asyncio.Lock()
+        self._calls = 0
 
     async def is_allowed(self, client_ip: str) -> Tuple[bool, int]:
         """
@@ -52,6 +57,9 @@ class RateLimiter:
             window_start = current_time - self.window
 
             # Get requests for this IP
+            self._calls += 1
+            if self._calls % self.CLEANUP_EVERY == 0:
+                self._forget_idle_clients(window_start)
             requests = self._requests[client_ip]
 
             # Remove old requests outside the window
@@ -67,21 +75,17 @@ class RateLimiter:
             remaining = self.max_requests - len(requests)
             return True, remaining
 
+    def _forget_idle_clients(self, window_start: float) -> None:
+        """Drop the clients that made no request since `window_start`. The caller holds the lock."""
+        for ip, requests in list(self._requests.items()):
+            requests[:] = [req_time for req_time in requests if req_time > window_start]
+            if not requests:
+                del self._requests[ip]
+
     async def cleanup_old_entries(self):
         """Remove old entries to prevent memory leak."""
         async with self._lock:
-            current_time = time.time()
-            window_start = current_time - self.window
-
-            # Remove IPs with no recent requests
-            ips_to_remove = []
-            for ip, requests in self._requests.items():
-                requests[:] = [req_time for req_time in requests if req_time > window_start]
-                if not requests:
-                    ips_to_remove.append(ip)
-
-            for ip in ips_to_remove:
-                del self._requests[ip]
+            self._forget_idle_clients(time.time() - self.window)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -106,9 +110,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         allowed, remaining = await self.rate_limiter.is_allowed(client_ip)
 
         if not allowed:
-            raise HTTPException(
+            # An exception raised here would not reach FastAPI's handlers, so the
+            # response is built directly.
+            return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Rate limit exceeded. Please try again later.",
+                content={"detail": "Rate limit exceeded. Please try again later."},
                 headers={
                     "X-RateLimit-Limit": str(self.rate_limiter.max_requests),
                     "X-RateLimit-Remaining": "0",

@@ -68,30 +68,49 @@ outside its range stops the command with the key named.
 | `ORBISPANORA_HOST`, `ORBISPANORA_PORT` | `127.0.0.1`, `8000` | Address to listen on. |
 | `ORBISPANORA_ROOT_PATH` | empty | Path prefix when a reverse proxy mounts the API below `/`. |
 | `ORBISPANORA_LOG_LEVEL` | `INFO` | `CRITICAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`. |
-| `ORBISPANORA_CORS_ORIGINS` | `*` | Comma-separated allowed origins. `*` allows all. |
+| `ORBISPANORA_CORS_ORIGINS` | empty | Comma-separated origins allowed to call the API from another site. Empty: none (the viewer uses the same origin). `*` allows all. |
 | `ORBISPANORA_CACHE_ENABLED`, `ORBISPANORA_CACHE_TYPE` | `true`, `memory` | `memory`, or `redis` (needs the `redis` extra; not tested here). |
 | `ORBISPANORA_REDIS_URL` | `redis://localhost:6379` | Secret: masked by `config show`. |
 | `ORBISPANORA_CACHE_TTL_HEIGHTMAP`, `_SURFACE`, `_CHUNK` | `300`, `120`, `600` | Cache lifetime in seconds. |
 | `ORBISPANORA_RATE_LIMIT_ENABLED`, `_REQUESTS`, `_WINDOW` | `true`, `10000`, `60` | Requests allowed per client per window (seconds). |
-| `ORBISPANORA_UPLOAD_MAX_SIZE_MB` | `500` | Maximum size of an uploaded world. |
-| `ORBISPANORA_TEMP_WORLD_DIR`, `_CLEANUP_TEMP_FILES`, `_MAX_TEMP_WORLDS` | `temp_worlds`, `true`, `5` | Where uploaded worlds are extracted and how many are kept. |
+| `ORBISPANORA_UPLOAD_MAX_SIZE_MB` | `500` | Maximum size of an uploaded zip file. |
+| `ORBISPANORA_UPLOAD_MAX_ENTRIES`, `_MAX_UNZIPPED_MB`, `_MAX_RATIO` | `20000`, `4096`, `100` | Limits on what a zip file may unzip to: files, total size, unzipped size over zipped size. |
+| `ORBISPANORA_UPLOAD_MAX_SESSIONS`, `_SESSION_TTL`, `_MAX_CHUNK_MB` | `4`, `3600`, `16` | Chunked uploads: sessions at once, idle seconds before one is dropped, largest chunk. |
+| `ORBISPANORA_TEMP_WORLD_DIR`, `_CLEANUP_TEMP_FILES`, `_MAX_TEMP_WORLDS` | `~/.cache/orbispanora/worlds`, `true`, `5` | Where uploaded worlds are extracted and how many are kept. |
+| `ORBISPANORA_UPLOAD_CHUNKS_DIR` | `~/.cache/orbispanora/uploads` | Where the chunks of uploads in progress are stored. |
 | `ORBISPANORA_COMPRESSION_ENABLED`, `_COMPRESSION_MIN_SIZE` | `true`, `500` | Gzip responses larger than this many bytes. |
 
 Changes from the previous version, which read unprefixed names (`WORLD_PATH`,
 `API_PORT`, ...): the prefix is new; `API_HOST` and `API_PORT` are now `HOST` and
 `PORT`; `API_RELOAD` is now the `--reload` option; `UPLOAD_ALLOWED_EXTENSIONS` was
 never read and is removed; `CORS_ORIGINS` is now applied (before, the server
-allowed every origin whatever it said).
+allowed every origin whatever it said) and is empty by default.
 
 The API only reads the world at `ORBISPANORA_WORLD_PATH`. Uploaded worlds are extracted
 into `ORBISPANORA_TEMP_WORLD_DIR`. Use a copy of a world you care about.
+
+## Security
+
+- The API has no authentication. Run it on a trusted network or behind a reverse proxy that
+  restricts access.
+- Uploaded zip files are checked before extraction: entry count, unzipped size, compression
+  ratio, no absolute paths, `..`, backslashes or symbolic links. The size of an upload is
+  counted while it is received.
+- File names in resource requests are limited to letters, digits, `_`, `-` and `.`, and the
+  resulting path has to stay inside `ORBISPANORA_RESOURCES_DIR`.
+- Error responses do not contain paths or exception text. The details are in the server log.
+- The rate limiter counts requests per client address as uvicorn reports it. Behind a
+  reverse proxy, set the environment variable `FORWARDED_ALLOW_IPS` (read by uvicorn) to the
+  proxy's address, so that uvicorn takes the client address from `X-Forwarded-For`. The middleware itself never
+  reads that header.
 
 ## Endpoints
 
 All responses use the envelope `{"status": "success", "data": {...}, "timestamp": "<ISO 8601, UTC>"}`.
 Errors use FastAPI's `{"detail": "..."}`. The status codes used are 400
-(invalid parameter), 404 (chunk or resource not found), 422 (invalid query
-value), 500 (server error) and 503 (no world loaded).
+(invalid parameter), 404 (chunk or resource not found), 413 (upload too large),
+422 (invalid query value), 429 (rate limit or too many uploads), 500 (server error) and
+503 (no world loaded).
 
 | Method and path | Purpose |
 |---|---|

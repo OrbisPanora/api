@@ -1,8 +1,8 @@
 import base64
 import json
 import logging
-import os
 import random
+from pathlib import Path
 from typing import List, Optional, Union
 
 from PIL import Image
@@ -10,8 +10,14 @@ from PIL import Image
 from ..models.responses import BlockJsonDataResponse
 from ..settings import get_settings
 from ..utils.errors import InvalidBlockProperties
+from ..utils.paths import path_inside
 
 LOGGER = logging.getLogger(__file__)
+
+def _resource(*parts: str) -> Path:
+    """A path inside the resources directory; the parts are checked as path components."""
+    return path_inside(get_settings().resources_dir, *parts)
+
 
 def get_json_block(id: str, namespace: str = "minecraft", properties: Union[str, dict] = "{}", biome: str = "biome") -> BlockJsonDataResponse:  # pylint: disable=redefined-builtin
 
@@ -23,13 +29,9 @@ def get_json_block(id: str, namespace: str = "minecraft", properties: Union[str,
     return BlockJsonDataResponse(**model_data)
 
 def _get_blockstate_data(name: str) -> dict:
-    blockstates_path = f"{get_settings().resources_dir}/json/blockstates"
-    filename = name + '.json'
-
-    block = os.path.join(blockstates_path, filename)
-
-    if not os.path.exists(block):
-        raise FileNotFoundError("json file: {block} not found")
+    block = _resource("json", "blockstates", name + ".json")
+    if not block.exists():
+        raise FileNotFoundError("blockstate not found")
 
     with open(block, 'r', encoding='utf-8') as f:
         blockstate_data = json.load(f)
@@ -110,14 +112,10 @@ def get_multiparts_block_data(blockstate_data: dict, properties: dict):
     return model
 
 def _get_block_data(blockstate_data: dict, properties: dict, id:str, namespace: str, biome: str) -> dict:
-    blocks_path = f"{get_settings().resources_dir}/json/blocks"
-
     if "variants" in blockstate_data:
         model = get_variants_block_data(blockstate_data, properties)
         model_name = model.split("/")[-1]
-        json_file = model_name + '.json'
-
-        filepath = os.path.join(blocks_path, json_file)
+        filepath = _resource("json", "blocks", model_name + ".json")
 
         with open(filepath, 'r', encoding='utf-8') as f:
             model_data = json.load(f)
@@ -139,9 +137,7 @@ def _get_block_data(blockstate_data: dict, properties: dict, id:str, namespace: 
         for categorie in models.keys():
             for model in models[categorie]:
                 model_name = model['apply']
-                json_file = model_name + '.json'
-
-                filepath = os.path.join(blocks_path, json_file)
+                filepath = _resource("json", "blocks", model_name + ".json")
 
                 with open(filepath, 'r', encoding='utf-8') as f:
                     model_data = json.load(f)
@@ -167,10 +163,8 @@ def check_tintindex(model_data: dict) -> bool:
     if has_tintindex(model_data):
         return True
 
-    blocks_path = f"{get_settings().resources_dir}/json/blocks"
     if 'parent' in model_data:
-        parent_name = model_data["parent"].split("/")[-1] +'.json'
-        filepath = os.path.join(blocks_path, parent_name)
+        filepath = _resource("json", "blocks", model_data["parent"].split("/")[-1] + ".json")
 
         with open(filepath, 'r', encoding='utf-8') as f:
             parent_data= json.load(f)
@@ -187,10 +181,7 @@ def has_tintindex(data: dict) -> bool:
     return False
 
 def get_biomes_values(biome: str) -> tuple[float,float]:
-    biome_path = f"{get_settings().resources_dir}/json/biome"
-    biome = biome.replace(" ", "_").lower() + '.json'
-
-    file = os.path.join(biome_path, biome)
+    file = _resource("json", "biome", biome.replace(" ", "_").lower() + ".json")
 
     with open(file, 'r', encoding='utf-8') as f:
         biome_data = json.load(f)
@@ -206,10 +197,9 @@ def image_to_base64(image_path: str) -> str:
 
 def get_images(textures: dict):
     images = {}
-    image_path = f"{get_settings().resources_dir}/images/"
     for key, value in textures.items():
         if value is not None:
-            img_base64 = image_to_base64(image_path + value)
+            img_base64 = image_to_base64(str(_resource("images", value)))
             images[key] = img_base64
         else:
             images[key] = None
@@ -309,7 +299,7 @@ def _get_texture_isometric(model_data: dict):
     return images
 
 def get_colors(id: str, namespace: str, biome: str) -> Optional[str]:  # pylint: disable=redefined-builtin
-    color_json_path = f"{get_settings().resources_dir}/json/colors/biome_tint_map.json"
+    color_json_path = _resource("json", "colors", "biome_tint_map.json")
     fullname = namespace + ":" + id
 
     with open(color_json_path, 'r', encoding='utf-8') as f:
@@ -321,10 +311,10 @@ def get_colors(id: str, namespace: str, biome: str) -> Optional[str]:  # pylint:
 
         if type == 'grass':
             downfall_effectiveness = downfall * temperature
-            img_path = f"{get_settings().resources_dir}/images/colors/grass.png"
+            img_path = _resource("images", "colors", "grass.png")
         else:
             downfall_effectiveness = downfall
-            img_path = f"{get_settings().resources_dir}/images/colors/foliage.png"
+            img_path = _resource("images", "colors", "foliage.png")
 
         img = Image.open(img_path)
         x = int((1 - temperature) * 255)

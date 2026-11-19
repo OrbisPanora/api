@@ -3,6 +3,7 @@ World endpoints for the API.
 Provides information about the Minecraft world.
 """
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..models.responses import APIResponse, WorldInfoResponse
 from ..services.world_service import WorldService, get_world_service
 from ..utils.errors import WorldNotLoadedError
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/worlds",
@@ -57,9 +60,10 @@ async def get_current_world(
         raise
 
     except Exception as e:
+        LOGGER.exception("Failed to get world info")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get world info: {str(e)}"
+            detail="Failed to get world info"
         ) from e
 
 
@@ -101,10 +105,13 @@ async def change_dimension(
             "dimension": dimension,
             "message": f"Switched to {dimension}"
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        LOGGER.exception("Failed to switch dimension")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to switch dimension: {str(e)}"
+            detail="Failed to switch dimension"
         ) from e
 
 

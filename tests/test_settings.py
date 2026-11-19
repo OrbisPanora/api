@@ -23,7 +23,7 @@ def test_defaults():
     assert settings.world_path is None
     assert settings.world_dimension == "overworld"
     assert settings.port == 8000
-    assert settings.cors_origins == ["*"]
+    assert settings.cors_origins == []
 
 
 def test_environment_variable_needs_the_prefix(monkeypatch):

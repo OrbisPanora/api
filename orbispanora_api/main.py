@@ -118,8 +118,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if "*" in _cors_origins else _cors_origins,
     allow_credentials=False,  # Must be False when using "*"
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -176,7 +176,7 @@ async def global_exception_handler(_request, exc):
         status_code=500,
         content={
             "status": "error",
-            "error": str(exc),
+            "error": "Internal server error",
             "detail": "Internal server error"
         }
     )

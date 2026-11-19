@@ -19,8 +19,13 @@ from orbispanora_lib.anvil import Chunk, World
 from ..models.responses import APIResponse
 from ..services.world_service import WorldService, get_world_service
 
-
 logger = logging.getLogger(__name__)
+
+#: Longest accepted `chunk_list`, in characters.
+MAX_CHUNK_LIST_LENGTH = 16384
+
+#: Largest accepted `limit`, in chunks.
+MAX_CHUNK_LIMIT = 4096
 
 # Air blocks to ignore
 AIR_BLOCKS = frozenset({'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', None, ''})
@@ -409,10 +414,10 @@ async def get_blocks(
     center_x: int = Query(0, description="Center X (chunk coords)"),
     center_z: int = Query(0, description="Center Z (chunk coords)"),
     radius: int = Query(2, ge=0, le=16, description="Radius in chunks (0 = single chunk)"),
-    chunk_list: Optional[str] = Query(None, description="List: 'x,z;x,z;...'"),
+    chunk_list: Optional[str] = Query(None, max_length=MAX_CHUNK_LIST_LENGTH, description="List: 'x,z;x,z;...'"),
     min_y: int = Query(-64, description="Y minimum"),
     max_y: int = Query(319, description="Y maximum"),
-    limit: int = Query(1024, description="Chunk limit"),
+    limit: int = Query(1024, ge=0, le=MAX_CHUNK_LIMIT, description="Chunk limit"),
     world_service: WorldService = Depends(get_world_service),
     iso_service: IsometricService = Depends(get_isometric_service)
 ):
@@ -487,8 +492,8 @@ async def get_surface_blocks(
     center_x: int = Query(0, description="Center X (chunk coords)"),
     center_z: int = Query(0, description="Center Z (chunk coords)"),
     radius: int = Query(2, ge=0, le=32, description="Radius in chunks"),
-    chunk_list: Optional[str] = Query(None, description="List: 'x,z;x,z;...'"),
-    limit: int = Query(2048, description="Chunk limit"),
+    chunk_list: Optional[str] = Query(None, max_length=MAX_CHUNK_LIST_LENGTH, description="List: 'x,z;x,z;...'"),
+    limit: int = Query(2048, ge=0, le=MAX_CHUNK_LIMIT, description="Chunk limit"),
     world_service: WorldService = Depends(get_world_service),
     iso_service: IsometricService = Depends(get_isometric_service)
 ):

@@ -3,6 +3,7 @@ Block endpoints for the API.
 Provides block data in various formats for the isometric viewer.
 """
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..models.responses import APIResponse, BlockDataResponse
 from ..services.world_service import WorldService, get_world_service
 from ..utils.errors import WorldNotLoadedError
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/blocks",
@@ -71,7 +74,8 @@ async def get_block(
         ) from e
 
     except Exception as e:
+        LOGGER.exception("Internal server error")
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error: {str(e)}"
+            detail="Internal server error"
         ) from e

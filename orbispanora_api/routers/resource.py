@@ -2,8 +2,8 @@
 Resource endpoints for the API.
 Provides resources for each minecraft block.
 """
+import json
 import logging
-import os
 from datetime import UTC, datetime
 from typing import Dict, List, Optional, Union
 
@@ -15,8 +15,15 @@ from ..models.responses import APIResponse, BlockJsonDataResponse
 from ..services.resource_service import get_json_block
 from ..settings import get_settings
 from ..utils.errors import InvalidBlockProperties
+from ..utils.paths import UnsafeNameError, path_inside
 
 LOGGER = logging.getLogger(__name__)
+
+#: Longest accepted `properties` query value, in characters.
+MAX_PROPERTIES_LENGTH = 2000
+
+#: Most block variants accepted by one `/palette` request.
+MAX_PALETTE_VARIANTS = 2000
 
 router = APIRouter(
     prefix="/api/resources",
@@ -36,9 +43,11 @@ router = APIRouter(
 async def get_image(
     image: str
 ):
-    filepath = f"{get_settings().resources_dir}/images/{image}"
-
-    if not os.path.exists(filepath):
+    try:
+        filepath = path_inside(get_settings().resources_dir, "images", image)
+    except UnsafeNameError as exc:
+        raise HTTPException(status_code=400, detail="Invalid image name") from exc
+    if not filepath.is_file():
         raise HTTPException(status_code=404, detail="Image not found")
 
     return FileResponse(
@@ -61,14 +70,15 @@ async def get_json(
     properties: str = Query(default={}),
     biome: str = Query(default="biome")
 ) -> APIResponse[BlockJsonDataResponse]:
+    if len(properties) > MAX_PROPERTIES_LENGTH:
+        raise HTTPException(status_code=400, detail="Properties are too long")
     try:
-        print("TEST")
         json_data = get_json_block(id=id, namespace=namespace, properties=properties, biome=biome)
 
         if json_data is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"Json's {id} not found"
+                detail="Block not found"
             )
 
         return APIResponse(
@@ -76,14 +86,12 @@ async def get_json(
             data=json_data,
             timestamp=datetime.now(UTC)
         )
-    except InvalidBlockProperties as exc:
-        raise HTTPException(
-            status_code=400
-        ) from exc
+    except (InvalidBlockProperties, UnsafeNameError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid block description") from exc
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=404,
-            detail = f"Block {id},  unknown or not found"
+            detail="Block unknown or not found"
         ) from exc
 
 class BlockItem(BaseModel):
@@ -104,8 +112,12 @@ class PaletteRequest(BaseModel):
 def get_palette(request: PaletteRequest) -> APIResponse:
     palette = {}
 
+    if not request.blocks:
+        raise HTTPException(status_code=400, detail="No blocks requested")
     # Access the root dictionary from the first BlockMap in the list
     blocks_dict = request.blocks[0].root
+    if sum(len(variants) for variants in blocks_dict.values()) > MAX_PALETTE_VARIANTS:
+        raise HTTPException(status_code=400, detail="Too many block variants requested")
 
     for block_name, block_variants in blocks_dict.items():
         # Initialize list for this block if not exists
