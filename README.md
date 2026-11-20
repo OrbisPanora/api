@@ -1,31 +1,47 @@
 # OrbisPanora API
 
-FastAPI backend for the OrbisPanora isometric Minecraft world viewer. It reads
-Minecraft Anvil worlds with the [`orbispanora-lib`](https://github.com/OrbisPanora/lib)
-library and returns JSON that the [viewer](https://github.com/OrbisPanora/viewer) draws.
+A FastAPI server that reads Minecraft Java worlds (Anvil format, 1.21.1) and serves their
+chunks as JSON. The viewer draws them in the browser.
 
-Target Minecraft version: 1.21.1.
+It is the second of three parts of OrbisPanora, an isometric world viewer:
+
+| Repository | Role |
+|---|---|
+| [lib](https://github.com/OrbisPanora/lib) | Reads and writes the world files. |
+| **api** (this one) | Serves chunks as JSON, using the library. |
+| [viewer](https://github.com/OrbisPanora/viewer) | Draws the chunks in the browser. |
+
+## Quick start
+
+With [uv](https://docs.astral.sh/uv/) and git (the library is installed from GitHub):
+
+```bash
+uv sync                                          # creates .venv from uv.lock
+uv run orbispanora run --world-path /path/to/a/copy/of/a/world
+```
+
+The server listens on `127.0.0.1:8000`. Interactive documentation is at `/docs` (Swagger UI)
+and `/redoc`. Without `--world-path`, start empty and upload a zipped world with
+`POST /api/upload/world`, or through the viewer. Use a copy of a world you care about.
+
+With Docker (the API has no authentication, so this publishes the port on the local machine only):
+
+```bash
+docker run -p 127.0.0.1:8000:8000 ghcr.io/orbispanora/api:0.1.0
+```
+
+The [viewer](https://github.com/OrbisPanora/viewer#quick-start) README shows how to run both images together.
 
 ## Requirements
 
-- [uv](https://docs.astral.sh/uv/). Python 3.14 or newer is required; `.python-version`
-  pins 3.14, which uv downloads if it is missing. The Dockerfile uses `python:3.14-slim`.
-- git, because `orbispanora-lib` is installed from GitHub (see [Updating the library](#updating-the-library)).
+Python 3.14 or newer (`.python-version` pins 3.14, which uv downloads if it is missing) and
+git.
 
 ## Setup
 
-```bash
-uv sync                      # creates .venv from uv.lock (includes the dev group)
-# optional: create .env.local with per-machine settings, see Configuration
-uv run orbispanora run
-```
-
-The server listens on `ORBISPANORA_HOST:ORBISPANORA_PORT` (default `127.0.0.1:8000`).
-Interactive documentation is at `/docs` (Swagger UI) and `/redoc`.
-
-Dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
-Add one with `uv add <package>`. The optional Redis cache is installed with
-`uv sync --extra redis`.
+Dependencies are declared in `pyproject.toml` and locked in `uv.lock`. Add one with
+`uv add <package>`. The optional Redis cache is installed with `uv sync --extra redis`.
+Per-machine settings go in `.env.local`, see [Configuration](#configuration).
 
 ## Command line
 
@@ -79,12 +95,6 @@ outside its range stops the command with the key named.
 | `ORBISPANORA_TEMP_WORLD_DIR`, `_CLEANUP_TEMP_FILES`, `_MAX_TEMP_WORLDS` | `~/.cache/orbispanora/worlds`, `true`, `5` | Where uploaded worlds are extracted and how many are kept. |
 | `ORBISPANORA_UPLOAD_CHUNKS_DIR` | `~/.cache/orbispanora/uploads` | Where the chunks of uploads in progress are stored. |
 | `ORBISPANORA_COMPRESSION_ENABLED`, `_COMPRESSION_MIN_SIZE` | `true`, `500` | Gzip responses larger than this many bytes. |
-
-Changes from the previous version, which read unprefixed names (`WORLD_PATH`,
-`API_PORT`, ...): the prefix is new; `API_HOST` and `API_PORT` are now `HOST` and
-`PORT`; `API_RELOAD` is now the `--reload` option; `UPLOAD_ALLOWED_EXTENSIONS` was
-never read and is removed; `CORS_ORIGINS` is now applied (before, the server
-allowed every origin whatever it said) and is empty by default.
 
 The API only reads the world at `ORBISPANORA_WORLD_PATH`. Uploaded worlds are extracted
 into `ORBISPANORA_TEMP_WORLD_DIR`. Use a copy of a world you care about.
@@ -145,10 +155,10 @@ api/
 │   ├── settings.py         # settings (pydantic-settings)
 │   ├── main.py             # FastAPI app, CORS, rate limiting, router registration
 │   ├── routers/            # world, chunk, block, biome, isometric, resource, upload
-│   ├── services/           # world_service, cache_service, resource_service
+│   ├── services/           # world_service, cache_service, resource_service, zip_safety
 │   ├── middleware/         # rate limiting, compression
 │   ├── models/             # Pydantic request and response models
-│   └── utils/              # error classes
+│   └── utils/              # error classes, safe path building
 └── tests/                  # pytest suite
 ```
 
@@ -177,15 +187,24 @@ The committed `.env` is copied into the image; `.env.local` is not. Pass other
 settings as `ORBISPANORA_*` environment variables. Uploaded worlds are extracted
 under `/data/worlds`; mount a volume there to keep them across restarts.
 
+## Releases
+
+Pushing a tag `vX.Y.Z` that matches the version in `pyproject.toml` runs
+`.github/workflows/release.yaml`. It runs the tests, lint and type check, builds the image,
+scans it with Trivy (fails on critical or high vulnerabilities that have a fix), pushes it to
+`ghcr.io/orbispanora/api` and attests its provenance.
+
 ## Updating the library
 
-`pyproject.toml` takes `orbispanora-lib` from `https://github.com/OrbisPanora/lib`
-and `uv.lock` pins the commit. To move to a newer commit:
+`pyproject.toml` takes `orbispanora-lib` from `https://github.com/OrbisPanora/lib` at a tag
+(`tag = "v0.1.0"` in `[tool.uv.sources]`), and `uv.lock` pins the commit. To move to a newer
+release, change the tag and run:
 
 ```bash
 uv lock --upgrade-package orbispanora-lib
 uv sync
 ```
 
-Released versions of the API use a tag of the library (`tag = "v0.1.0"` in
-`[tool.uv.sources]`).
+## Licence
+
+PolyForm Noncommercial License 1.0.0, see `LICENSE`.
