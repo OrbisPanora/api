@@ -37,3 +37,6 @@ logs/
 /temp_worlds
 .coverage
 .pytest_cache/
+
+# Benchmark results (machine-specific)
+benchmarks/results/

@@ -9,7 +9,7 @@ import time
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ..models.responses import (
     APIResponse,
@@ -19,6 +19,7 @@ from ..models.responses import (
 )
 from ..services.world_service import WorldService, get_world_service
 from ..utils.errors import WorldNotLoadedError
+from ..utils.timing import server_timing
 
 LOGGER = logging.getLogger(__name__)
 
@@ -267,6 +268,7 @@ async def get_chunk(
     chunk_x: int,
     chunk_z: int,
     chunk_h: int,
+    response: Response,
     mode: Literal["heightmap", "surface", "isometric", "render", "simplified", "full"] = Query(
         default="heightmap",
         description="Data format: heightmap (~1KB), surface (~10-50KB), isometric (~5-20KB), render (~2-10KB pre-calculated), simplified (~5KB), or full (~500KB-2MB)"
@@ -311,7 +313,13 @@ async def get_chunk(
         # Use async version for isometric mode (most commonly used)
         # This allows multiple requests to run in parallel
         if mode == "isometric":
-            chunk_data = await world_service.get_chunk_data_async(chunk_x, chunk_z, chunk_h, mode)
+            started = time.perf_counter()
+            chunk_data, timings = await world_service.get_isometric_chunk_timed(chunk_x, chunk_z)
+            timings["total"] = (time.perf_counter() - started) * 1000
+            cold = bool(timings.pop("cold", 0.0))
+            blocks = int(timings.pop("blocks", 0.0))
+            response.headers["Server-Timing"] = server_timing(timings, cold=int(cold), blocks=blocks)
+            LOGGER.debug("isometric chunk (%s, %s) %s", chunk_x, chunk_z, response.headers["Server-Timing"])
         else:
             chunk_data = world_service.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
 

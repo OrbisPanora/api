@@ -8,10 +8,11 @@ import concurrent.futures
 import os
 import shutil
 import tempfile
+import time
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 from orbispanora_lib.anvil import Chunk, OldBlock, World
@@ -26,14 +27,22 @@ from ..models.responses import (
 )
 from ..settings import get_settings
 from ..utils.errors import WorldNotLoadedError
+from ..utils.timing import Stopwatch
 from .zip_safety import safe_extract
 
 # Global cache for World instances in worker process
 _worker_worlds = {}
 
-def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int) -> Optional[dict]:
-    """Surface blocks of a chunk with their isometric screen positions, or None if the chunk does not exist."""
+def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optional[Stopwatch] = None) -> Optional[dict]:
+    """
+    Surface blocks of a chunk with their isometric screen positions, or None if the chunk does not exist.
+
+    When ``watch`` is given, it gets one lap per phase: ``chunk`` (region read, decompression and
+    NBT parsing), ``scan1`` (height range), ``scan2`` (block extraction) and ``project`` (screen positions).
+    """
+    watch = watch or Stopwatch()
     chunk = world.get_chunk(chunk_x, chunk_z)
+    watch.lap("chunk")
     if not isinstance(chunk, Chunk):
         return None
 
@@ -100,6 +109,7 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int) -> Optional[
                 if col_found_surface:
                     break # Stop checking lower sections for this column
 
+    watch.lap("scan1")
     if min_value > max_value:
          # Logic from legacy: return empty or default if no valid range found
          # Legacy returned: "palette": min_value (which would be 320)
@@ -134,6 +144,8 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int) -> Optional[
                 except Exception:
                     continue
 
+    watch.lap("scan2")
+
     # Vectorized Projection using NumPy
     if raw_blocks:
         blocks_arr = np.array([b[:3] for b in raw_blocks], dtype=np.int32)
@@ -165,6 +177,7 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int) -> Optional[
             short_name = name.split(":")[1]
             isometric_blocks.append([f"{short_name}.webp", float(x_finals[i]), float(y_finals[i])])
 
+    watch.lap("project")
     return {
         "chunk_x": chunk_x,
         "chunk_z": chunk_z,
@@ -175,19 +188,42 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int) -> Optional[
     }
 
 
+def _worker_get_chunk_isometric_timed(
+    world_path: str, dimension: str, chunk_x: int, chunk_z: int, submitted: Optional[float] = None
+) -> Tuple[Optional[dict], Dict[str, float]]:
+    """
+    Isometric chunk data computed in a worker process, with the time each phase took (milliseconds).
+
+    ``submitted`` is ``time.time()`` at the moment the request was handed to the pool; the
+    ``queue`` phase is the wait until this function starts. ``finished`` is ``time.time()`` at the
+    end, so the caller can compute how long the result took to come back (``return``). The note
+    ``cold`` is 1.0 if this process had to open the world for this request.
+    """
+    started = time.time()
+    watch = Stopwatch()
+    cache_key = (world_path, dimension)
+    cold = cache_key not in _worker_worlds
+    try:
+        if cold:
+            _worker_worlds[cache_key] = World(world_path, dimension=dimension)
+        watch.lap("world")
+        data = _isometric_chunk_data(_worker_worlds[cache_key], chunk_x, chunk_z, watch)
+    except Exception as e:
+        print(f"Worker error for isometric chunk ({chunk_x}, {chunk_z}): {e}")
+        data = None
+    timings = {"queue": max(0.0, (started - submitted) * 1000) if submitted else 0.0}
+    timings.update(watch.phases)
+    timings["cold"] = 1.0 if cold else 0.0
+    timings["finished"] = time.time()
+    return data, timings
+
+
 def _worker_get_chunk_isometric(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> Optional[dict]:
     """
     Worker function to get chunk data in isometric mode in a separate process.
     This allows multiple chunk requests to run in parallel.
     """
-    try:
-        cache_key = (world_path, dimension)
-        if cache_key not in _worker_worlds:
-            _worker_worlds[cache_key] = World(world_path, dimension=dimension)
-        return _isometric_chunk_data(_worker_worlds[cache_key], chunk_x, chunk_z)
-    except Exception as e:
-        print(f"Worker error for isometric chunk ({chunk_x}, {chunk_z}): {e}")
-        return None
+    return _worker_get_chunk_isometric_timed(world_path, dimension, chunk_x, chunk_z)[0]
 
 
 def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
@@ -681,25 +717,39 @@ class WorldService:
             # For other modes, fall back to synchronous version
             return self.get_chunk_data(chunk_x, chunk_z, chunk_h, mode)
 
+        return (await self.get_isometric_chunk_timed(chunk_x, chunk_z))[0]
+
+    async def get_isometric_chunk_timed(self, chunk_x: int, chunk_z: int) -> Tuple[Optional[ChunkDataResponse], Dict[str, float]]:
+        """
+        Isometric chunk data from the process pool, with the time each phase took in milliseconds.
+
+        Phases: ``queue``, ``world`` (only when the worker opens the world), ``chunk``, ``scan1``,
+        ``scan2``, ``project`` and ``return`` (from the worker finishing to the result being here).
+        The returned dict also holds ``cold`` (1.0 if the worker opened the world for this
+        request) and ``blocks`` (number of blocks sent). Both are notes rather than durations.
+        """
         if not self.world_path:
-            return None
+            return None, {}
 
         loop = asyncio.get_event_loop()
         dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
 
         try:
-            result = await loop.run_in_executor(
+            result, timings = await loop.run_in_executor(
                 self._executor,
-                _worker_get_chunk_isometric,
+                _worker_get_chunk_isometric_timed,
                 self.world_path,
                 dimension,
                 chunk_x,
-                chunk_z
+                chunk_z,
+                time.time()
             )
+            timings["return"] = max(0.0, (time.time() - timings.pop("finished")) * 1000)
 
             if result is None:
-                return None
+                return None, timings
 
+            timings["blocks"] = float(len(result["surface_blocks"]))
             return ChunkDataResponse(
                 chunk_x=result["chunk_x"],
                 chunk_z=result["chunk_z"],
@@ -707,10 +757,10 @@ class WorldService:
                 surface_blocks=result["surface_blocks"],
                 sections=result["sections"],
                 palette=result["palette"]
-            )
+            ), timings
         except Exception as e:
             print(f"Async chunk data generation failed: {e}")
-            return None
+            return None, {}
 
     def _generate_render_data(self, chunk_x: int, chunk_z: int) -> dict:
         """
