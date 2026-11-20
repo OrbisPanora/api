@@ -53,9 +53,8 @@ module-name = "orbispanora_api"
 module-root = ""
 
 [tool.uv.sources]
-# The library is installed from GitHub. uv.lock pins the commit. At a release the
-# source is a tag (tag = "v0.1.0"); until then it follows a branch.
-orbispanora-lib = { git = "https://github.com/OrbisPanora/lib", branch = "dev" }
+# The library is installed from GitHub, at a release tag. uv.lock pins the commit.
+orbispanora-lib = { git = "https://github.com/OrbisPanora/lib", tag = "v0.1.0" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
