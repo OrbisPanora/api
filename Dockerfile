@@ -27,7 +27,14 @@ RUN uv sync --locked
 # Final stage: the virtual environment and the source, run by an unprivileged user.
 FROM ${PYTHON_IMAGE}
 
-RUN useradd --system --uid 10001 --no-create-home --home-dir /nonexistent orbispanora \
+# zlib1g: the Debian security update is newer than the base image, which Trivy reports
+# (CVE-2026-85091). pip is not used at run time, and its vendored msgpack and urllib3 were
+# flagged too, so it is removed.
+RUN apt-get update \
+    && apt-get install --no-install-recommends --only-upgrade -y zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall -y pip \
+    && useradd --system --uid 10001 --no-create-home --home-dir /nonexistent orbispanora \
     && mkdir /data \
     && chown orbispanora /data
 
