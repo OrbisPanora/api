@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     cleanup_temp_files: bool = True
     max_temp_worlds: int = Field(default=5, ge=1)
 
+    # --- Worker processes and memory ---
+
+    #: Processes that compute chunks. The default is the number of CPU cores, at most 8.
+    workers: int = Field(default_factory=lambda: min(os.cpu_count() or 1, 8), ge=1, le=64)
+    #: Decoded chunks each process keeps (the main process and every worker). A decoded chunk takes about
+    #: 240 KB, so a worker's chunk cache is at most this many times 240 KB.
+    world_chunk_cache: int = Field(default=32, ge=0)
+    #: Region files each process keeps open. A region is read when a chunk of it is asked for, not loaded whole.
+    world_region_cache: int = Field(default=8, ge=0)
+
     # --- Compression ---
 
     compression_enabled: bool = True

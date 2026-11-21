@@ -95,6 +95,19 @@ outside its range stops the command with the key named.
 | `ORBISPANORA_TEMP_WORLD_DIR`, `_CLEANUP_TEMP_FILES`, `_MAX_TEMP_WORLDS` | `~/.cache/orbispanora/worlds`, `true`, `5` | Where uploaded worlds are extracted and how many are kept. |
 | `ORBISPANORA_UPLOAD_CHUNKS_DIR` | `~/.cache/orbispanora/uploads` | Where the chunks of uploads in progress are stored. |
 | `ORBISPANORA_COMPRESSION_ENABLED`, `_COMPRESSION_MIN_SIZE` | `true`, `500` | Gzip responses larger than this many bytes. |
+| `ORBISPANORA_WORKERS` | CPU cores, at most 8 | Worker processes that compute chunks (1 to 64). All routes share them. |
+| `ORBISPANORA_WORLD_CHUNK_CACHE` | `32` | Decoded chunks each process keeps. A decoded chunk takes about 240 KB. |
+| `ORBISPANORA_WORLD_REGION_CACHE` | `8` | Region files each process keeps open. A region file is not read into memory: its header is, and each chunk when it is asked for. |
+
+### Memory
+
+The main process and each worker start at about 70 to 100 MB. With the default settings a worker stays near
+120 MB while it reads a large world, because it keeps at most `ORBISPANORA_WORLD_CHUNK_CACHE` decoded chunks
+and `ORBISPANORA_WORLD_REGION_CACHE` open region files. The total is about
+`(ORBISPANORA_WORKERS + 1) * 120 MB`, whatever the size of the world and the area that was viewed. Measured
+once on a 2.0 GB world (224 regions) with 5 minutes of panning at zoom 0.25: 1.15 GB in total with 8 workers,
+the largest worker 126 MB, no growth. Each worker also keeps only the world that is loaded: loading another
+world (an upload, a dimension switch) replaces the worker processes.
 
 The API only reads the world at `ORBISPANORA_WORLD_PATH`. Uploaded worlds are extracted
 into `ORBISPANORA_TEMP_WORLD_DIR`. Use a copy of a world you care about.

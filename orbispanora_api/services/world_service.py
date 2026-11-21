@@ -31,8 +31,39 @@ from ..utils.errors import WorldNotLoadedError
 from ..utils.timing import Stopwatch
 from .zip_safety import safe_extract
 
-# Global cache for World instances in worker process
-_worker_worlds = {}
+#: The world a worker process has open: ``((path, dimension), World)``. A worker keeps one world at a time, so
+#: the memory of an earlier world is released when another one is asked for.
+_worker_state: Optional[Tuple[Tuple[str, str], World]] = None
+
+
+def worker_world(world_path: str, dimension: str) -> Tuple[World, bool]:
+    """
+    The ``World`` of this worker process for a path and a dimension, and whether it was opened just now.
+
+    Reading is lazy: a region file is read when a chunk of it is asked for, and the number of regions and
+    chunks kept is limited by the settings ``world_region_cache`` and ``world_chunk_cache``.
+    """
+    global _worker_state  # pylint: disable=global-statement
+    key = (world_path, dimension)
+    if _worker_state is not None and _worker_state[0] == key:
+        return _worker_state[1], False
+    if _worker_state is not None:
+        _worker_state[1].close()
+        _worker_state = None
+    world = _open_world(world_path, dimension)
+    _worker_state = (key, world)
+    return world, True
+
+
+def _open_world(world_path: str, dimension: str) -> World:
+    """A ``World`` whose caches have the sizes of the settings."""
+    settings = get_settings()
+    return World(
+        world_path,
+        dimension=dimension,
+        chunk_cache_size=settings.world_chunk_cache,
+        region_cache_size=settings.world_region_cache,
+    )
 
 #: Blocks that do not stop the search for the surface and are not drawn as a surface.
 _AIR_BLOCKS = frozenset({"minecraft:air", "minecraft:cave_air", "minecraft:void_air"})
@@ -187,13 +218,11 @@ def _worker_get_chunk_isometric_timed(
     """
     started = time.time()
     watch = Stopwatch()
-    cache_key = (world_path, dimension)
-    cold = cache_key not in _worker_worlds
+    cold = False
     try:
-        if cold:
-            _worker_worlds[cache_key] = World(world_path, dimension=dimension)
+        world, cold = worker_world(world_path, dimension)
         watch.lap("world")
-        data = _isometric_chunk_data(_worker_worlds[cache_key], chunk_x, chunk_z, watch)
+        data = _isometric_chunk_data(world, chunk_x, chunk_z, watch)
     except Exception as e:
         print(f"Worker error for isometric chunk ({chunk_x}, {chunk_z}): {e}")
         data = None
@@ -217,8 +246,8 @@ def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, 
     Worker function to generate render data in a separate process.
     """
     try:
-        # Re-instantiate World for this process
-        world = World(world_path, dimension=dimension)
+        # The world this worker process has open
+        world, _ = worker_world(world_path, dimension)
 
         chunk = world.get_chunk(chunk_x, chunk_z)
         if not isinstance(chunk, Chunk):
@@ -339,7 +368,29 @@ class WorldService:
         """Initialize world service."""
         # Initialize executor for async tasks
         if self._executor is None:
-            self._executor = concurrent.futures.ProcessPoolExecutor(max_workers=8)
+            self._executor = self._new_pool()
+
+    @staticmethod
+    def _new_pool() -> concurrent.futures.ProcessPoolExecutor:
+        """A pool with the number of workers of the settings."""
+        return concurrent.futures.ProcessPoolExecutor(max_workers=get_settings().workers)
+
+    @property
+    def executor(self) -> concurrent.futures.ProcessPoolExecutor:
+        """The pool of worker processes, shared by every route that computes chunks."""
+        if self._executor is None:
+            self._executor = self._new_pool()
+        return self._executor
+
+    def _restart_workers(self) -> None:
+        """
+        Replace the worker processes. Called when another world is loaded, so the memory the workers hold for
+        the previous world is released. Requests that are running finish first; the old workers then exit.
+        """
+        previous = self._executor
+        self._executor = self._new_pool()
+        if previous is not None:
+            previous.shutdown(wait=False)
 
     def shutdown(self):
         """Stop the worker processes. Called when the application shuts down."""
@@ -355,10 +406,7 @@ class WorldService:
                 raise ValueError("No world configured. Set ORBISPANORA_WORLD_PATH or upload a world.")
             world_path = str(configured)
             print(f"Loading world from: {world_path}")
-            self._world = World(
-                world_path,
-                dimension=get_settings().world_dimension
-            )
+            self._world = _open_world(world_path, get_settings().world_dimension)
             self._world_path = world_path
             print("World loaded successfully")
         except Exception as e:
@@ -392,11 +440,12 @@ class WorldService:
                 dimension = get_settings().world_dimension
 
             print(f"Loading world from: {world_path} (dimension: {dimension})")
-            self._world = World(
-                world_path,
-                dimension=dimension
-            )
+            previous = self._world
+            self._world = _open_world(world_path, dimension)
             self._world_path = world_path
+            if previous is not None:
+                previous.close()
+            self._restart_workers()
             print(f"World loaded successfully from {world_path}")
             print(f"[WorldService] World instance updated: {self._world is not None}")
         except Exception as e:

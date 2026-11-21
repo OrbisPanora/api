@@ -99,3 +99,23 @@ def test_problems_reports_a_missing_world_as_an_error(tmp_path, monkeypatch):
 
 def test_problems_has_no_error_for_the_defaults():
     assert all(level != "error" for level, _ in Settings().problems())
+
+
+def test_worker_and_cache_defaults():
+    settings = Settings()
+    assert 1 <= settings.workers <= 8
+    assert settings.world_chunk_cache == 32
+    assert settings.world_region_cache == 8
+
+
+def test_worker_and_cache_settings_are_read_and_checked(monkeypatch):
+    monkeypatch.setenv("ORBISPANORA_WORKERS", "3")
+    monkeypatch.setenv("ORBISPANORA_WORLD_CHUNK_CACHE", "5")
+    monkeypatch.setenv("ORBISPANORA_WORLD_REGION_CACHE", "2")
+    settings = Settings()
+    assert (settings.workers, settings.world_chunk_cache, settings.world_region_cache) == (3, 5, 2)
+    for name, value in [("ORBISPANORA_WORKERS", "0"), ("ORBISPANORA_WORKERS", "65"), ("ORBISPANORA_WORLD_CHUNK_CACHE", "-1")]:
+        monkeypatch.setenv(name, value)
+        with pytest.raises(ValidationError):
+            Settings()
+        monkeypatch.delenv(name)

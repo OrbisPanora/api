@@ -14,10 +14,10 @@ from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from orbispanora_lib.anvil import Chunk, World
+from orbispanora_lib.anvil import Chunk
 
 from ..models.responses import APIResponse
-from ..services.world_service import WorldService, get_world_service
+from ..services.world_service import WorldService, get_world_service, worker_world
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +80,8 @@ def _worker_extract_all_blocks(world_path: str, dimension: str, cx: int, cz: int
     Running in a separate process, so it must instantiate its own World access.
     """
     try:
-        # Re-instantiate World for this process
-        world = World(world_path, dimension=dimension)
+        # The world this worker process has open
+        world, _ = worker_world(world_path, dimension)
 
         blocks = []
         chunk = world.get_chunk(cx, cz)
@@ -152,7 +152,7 @@ def _worker_extract_surface_blocks(world_path: str, dimension: str, cx: int, cz:
     Worker for extracting surface blocks (optimized).
     """
     try:
-        world = World(world_path, dimension=dimension)
+        world, _ = worker_world(world_path, dimension)
         blocks = []
         chunk = world.get_chunk(cx, cz)
 
@@ -243,17 +243,19 @@ class IsometricService:
 
     MAX_CACHE_SIZE = 256
 
-    def __init__(self, max_workers: int = 8):
-        # Use ProcessPoolExecutor for true parallelism bypassing GIL
-        self.executor = ProcessPoolExecutor(max_workers=max_workers)
+    def __init__(self):
         self._cache: Dict[str, ChunkData] = {}
         self._cache_order: List[str] = []
         self._cache_lock = asyncio.Lock()
         self._stats = {"cache_hits": 0, "cache_misses": 0, "chunks_processed": 0, "blocks_found": 0}
 
+    @property
+    def executor(self) -> ProcessPoolExecutor:
+        """The worker pool of the world service. The processes are shared with the chunk route, not a second set."""
+        return get_world_service().executor
+
     def shutdown(self):
-        """Stop the worker processes. Called when the application shuts down."""
-        self.executor.shutdown(wait=True, cancel_futures=True)
+        """Nothing to stop: the worker processes belong to the world service, which stops them."""
 
     async def get_all_blocks(
         self,
