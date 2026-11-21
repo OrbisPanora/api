@@ -62,4 +62,5 @@ def test_the_reference_covers_the_rules_it_is_meant_to_pin_down():
     # Blocks come in the order z, then x, then y (the draw order).
     hill = recorded("synthetic/hill")["surface_blocks"]
     assert hill[0][1:] != hill[1][1:]
-    assert len(SYNTHETIC_NAMES) == 8
+    assert all(f"synthetic/{name}" in RECORDED for name in SYNTHETIC_NAMES)
+    assert len(SYNTHETIC_NAMES) == 12

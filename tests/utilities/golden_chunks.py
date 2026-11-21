@@ -94,6 +94,54 @@ def _water(put: Put) -> None:
             put(x, 62, z, "water")
 
 
+def _section_top(put: Put) -> None:
+    """Invisible blocks at the top row of a section (y 79) with nothing above, and the same with one block above."""
+    for x in range(16):
+        for z in range(16):
+            put(x, 64, z, "stone")
+            if x < 8:
+                put(x, 79, z, "oak_leaves")
+            else:
+                put(x, 79, z, "glass")
+    # One block in the section above makes that section exist, so the glass columns have air above them.
+    put(0, 80, 0, "stone")
+    # An invisible block at the top row of the highest section: nothing above it.
+    put(15, 95, 15, "oak_leaves")
+
+
+def _gap_sections(put: Put) -> None:
+    """Sections 0 and 6 only, with the sections between them missing, and one column with no block."""
+    for x in range(16):
+        for z in range(16):
+            if (x, z) == (15, 15):
+                continue
+            put(x, 5 if x < 8 else 100, z, "stone")
+
+
+def _air_kinds(put: Put) -> None:
+    """Cave air and void air above stone: air for the surface search, but not invisible for the lowest height."""
+    for x in range(16):
+        for z in range(16):
+            put(x, 64, z, "stone")
+            if x < 8:
+                put(x, 65, z, "cave_air" if z < 8 else "void_air")
+
+
+def _invisible_kinds(put: Put) -> None:
+    """Ice, vine, fern and torch on top of stone."""
+    for x in range(16):
+        for z in range(16):
+            put(x, 64, z, "stone")
+            if x % 4 == 0:
+                put(x, 65, z, "ice")
+            elif x % 4 == 1 and z % 2 == 0:
+                put(x, 65, z, "vine")
+            elif x % 4 == 2:
+                put(x, 65, z, "fern")
+            elif z % 3 == 0:
+                put(x, 65, z, "torch")
+
+
 SYNTHETIC_BUILDERS: Dict[str, Callable[[Put], None]] = {
     "flat": _flat,
     "hill": _hill,
@@ -102,6 +150,10 @@ SYNTHETIC_BUILDERS: Dict[str, Callable[[Put], None]] = {
     "hole": _hole,
     "pillars": _pillars,
     "water": _water,
+    "section_top": _section_top,
+    "gap_sections": _gap_sections,
+    "air_kinds": _air_kinds,
+    "invisible_kinds": _invisible_kinds,
 }
 #: A chunk that is stored but has no section.
 EMPTY_CHUNK_NAME = "no_sections"
