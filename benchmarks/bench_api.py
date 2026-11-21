@@ -253,7 +253,11 @@ def parse_start(text: str) -> Tuple[int, int]:
 async def amain(args: argparse.Namespace) -> int:
     """Run against the server at ``--base-url`` and write the result file."""
     async with httpx.AsyncClient(base_url=args.base_url, timeout=60.0, headers={'Accept-Encoding': 'gzip'}) as client:
-        health = await client.get('/api/worlds/health')
+        try:
+            health = await client.get('/api/worlds/health')
+        except httpx.TransportError as error:
+            print(f'Cannot reach the API at {args.base_url} ({type(error).__name__}). Is it running, on that address?', file=sys.stderr)
+            return 1
         if health.status_code != 200:
             print(f'The API at {args.base_url} is not healthy: {health.status_code}', file=sys.stderr)
             return 1
