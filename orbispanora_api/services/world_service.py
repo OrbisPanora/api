@@ -16,6 +16,7 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 from orbispanora_lib.anvil import Chunk, OldBlock, World
+from orbispanora_lib.anvil.errors import OutOfBoundsCoordinates
 
 from ..models.responses import (
     AreaHeightmapResponse,
@@ -33,12 +34,86 @@ from .zip_safety import safe_extract
 # Global cache for World instances in worker process
 _worker_worlds = {}
 
+#: Blocks that do not stop the search for the surface and are not drawn as a surface.
+_AIR_BLOCKS = frozenset({"minecraft:air", "minecraft:cave_air", "minecraft:void_air"})
+#: Blocks that are drawn but do not count as the lowest surface of the chunk.
+#: Water is intentionally not in this set: it acts as a surface.
+_INVISIBLE_BLOCKS = frozenset({
+    "minecraft:acacia_leaves", "minecraft:azalea_leaves", "minecraft:bamboo_large_leaves", "minecraft:bamboo_small_leaves",
+    "minecraft:birch_leaves", "minecraft:cherry_leaves", "minecraft:dark_oak_leaves",
+    "minecraft:flowering_azalea_leaves", "minecraft:jungle_leaves", "minecraft:mangrove_leaves",
+    "minecraft:oak_leaves", "minecraft:spruce_leaves", "minecraft:glass",
+    "minecraft:ice", "minecraft:tall_grass", "minecraft:grass", "minecraft:short_grass",
+    "minecraft:fern", "minecraft:large_fern", "minecraft:vine", "minecraft:torch",
+})
+#: Highest section index and the range the old code looked at.
+_FIRST_SECTION = 19
+_LAST_SECTION = -4
+#: Value of the lowest height before any column was looked at.
+_NO_LOWEST = 320
+#: Value of the highest height before any column was looked at.
+_NO_HIGHEST = -64
+
+
+def _has_section(chunk: Chunk, section_y: int) -> bool:
+    """True if the chunk has a section at this index. An index outside the range of the chunk's version has none."""
+    try:
+        return bool(chunk.get_section(section_y))
+    except OutOfBoundsCoordinates:
+        return False
+
+
+def _active_rows(chunk: Chunk, min_y: int, height: int) -> np.ndarray:
+    """Which rows of the block array belong to a section that the chunk has."""
+    active = np.zeros(height, dtype=bool)
+    for section_y in range(_FIRST_SECTION, _LAST_SECTION - 1, -1):
+        if _has_section(chunk, section_y):
+            first = section_y * 16 - min_y
+            active[max(first, 0):max(first + 16, 0)] = True
+    return active
+
+
+def _height_range(indices: np.ndarray, air: np.ndarray, invisible: np.ndarray, active: np.ndarray, min_y: int):
+    """
+    The lowest and the highest height of the chunk's surface, as ``(min_value, max_value)``.
+
+    For each column the search goes down through the sections the chunk has, to the first block that is not
+    air. The highest such block of all columns gives ``max_value``. ``min_value`` is the lowest height the search
+    passed through: air above the surface counts, and so does the surface block unless it is invisible. A column
+    with no block at all counts the lowest row of the lowest section.
+    """
+    rows = indices.shape[0]
+    solid = ~air[indices] & active[:, None, None]
+    has_top = solid.any(axis=0)
+    top_row = rows - 1 - solid[::-1].argmax(axis=0)
+    active_rows = np.flatnonzero(active)
+
+    lowest = np.full(has_top.shape, _NO_LOWEST, dtype=np.int64)
+    if active_rows.size:
+        lowest[~has_top] = active_rows[0] + min_y
+        top_ids = np.take_along_axis(indices, top_row[None], axis=0)[0]
+        visible_top = has_top & ~invisible[top_ids]
+        lowest[visible_top] = top_row[visible_top] + min_y
+        # An invisible surface block counts only through the air above it, down to the next section row up.
+        hidden_z, hidden_x = np.nonzero(has_top & invisible[top_ids])
+        above = np.searchsorted(active_rows, top_row[hidden_z, hidden_x], side="right")
+        found = above < active_rows.size
+        lowest[hidden_z[found], hidden_x[found]] = active_rows[above[found]] + min_y
+
+    highest = int(top_row[has_top].max()) + min_y if has_top.any() else _NO_HIGHEST
+    return min(_NO_LOWEST, int(lowest.min())), max(_NO_HIGHEST, highest)
+
+
 def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optional[Stopwatch] = None) -> Optional[dict]:
     """
     Surface blocks of a chunk with their isometric screen positions, or None if the chunk does not exist.
 
+    The result holds every block that is not air between the lowest and the highest surface of the chunk
+    (see ``_height_range``), in the order z, x, y. It is the draw order of the viewer.
+
     When ``watch`` is given, it gets one lap per phase: ``chunk`` (region read, decompression and
-    NBT parsing), ``scan1`` (height range), ``scan2`` (block extraction) and ``project`` (screen positions).
+    NBT parsing), ``decode`` (the chunk's blocks as an array), ``scan1`` (height range), ``scan2`` (block
+    selection) and ``project`` (screen positions and the list sent to the client).
     """
     watch = watch or Stopwatch()
     chunk = world.get_chunk(chunk_x, chunk_z)
@@ -46,142 +121,53 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optio
     if not isinstance(chunk, Chunk):
         return None
 
-    isometric_blocks = []
-    min_value = 320
-    max_value = -64
+    if not any(_has_section(chunk, section_y) for section_y in range(_FIRST_SECTION, _LAST_SECTION - 1, -1)):
+        # A chunk with no section at all. This shape differs from the other results on purpose here: the route
+        # answers "not found" for it, as it did before.
+        return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
-    # Optimize lookups with Sets
-    AIR = {'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air'}
-    INVISIBLE = {
-        'minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves',
-        'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves',
-        'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-        'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass',
-        'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
-        'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch'
-    }
-    # Water is intentionally NOT in INVISIBLE to act as a surface (min_value anchor)
+    blocks = chunk.block_array()
+    indices, names, min_y = blocks.indices, blocks.names, blocks.min_y
+    watch.lap("decode")
 
-    global_biome_x = chunk_x * 16
-    global_biome_z = chunk_z * 16
-
-    # Pass 1: Find min/max height (Safe Section Skip + Column Optimization)
-    # Pre-calculate active sections (check only existence, NO palette access)
-    active_sections = []
-    for sy in range(19, -5, -1):
-        try:
-            if chunk.get_section(sy):
-                active_sections.append(sy)
-        except Exception:
-            pass
-
-    if not active_sections:
-         # Fast exit for empty chunks
-        if min_value > max_value:
-            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-    for z in range(16):
-        for x in range(16):
-            col_found_surface = False
-
-            # Iterate only active sections for this column
-            for sy in active_sections:
-                y_start = sy * 16 + 15
-                y_end = sy * 16
-                y_start = min(y_start, 319)
-                y_end = max(y_end, -64)
-
-                for y in range(y_start, y_end - 1, -1):
-                    try:
-                        block = chunk.get_block(x, y, z, force_new=True)
-                        if block:
-                            name = block.name()
-                            if name not in INVISIBLE:
-                                min_value = min(min_value, y)
-
-                            if name not in AIR:
-                                max_value = max(max_value, y)
-                                col_found_surface = True
-                                break
-                    except Exception:
-                        continue
-
-                if col_found_surface:
-                    break # Stop checking lower sections for this column
-
+    air = np.fromiter((name in _AIR_BLOCKS for name in names), dtype=bool, count=len(names))
+    invisible = np.fromiter((name in _INVISIBLE_BLOCKS for name in names), dtype=bool, count=len(names))
+    active = _active_rows(chunk, min_y, blocks.height)
+    min_value, max_value = _height_range(indices, air, invisible, active, min_y)
     watch.lap("scan1")
+
     if min_value > max_value:
-         # Logic from legacy: return empty or default if no valid range found
-         # Legacy returned: "palette": min_value (which would be 320)
+        # No usable range: legacy returned the lowest height (320 when no column was looked at).
         return {
             "chunk_x": chunk_x, "chunk_z": chunk_z, "heightmap": 0,
             "surface_blocks": [], "sections": None, "palette": min_value
         }
 
-    cpt = 0
-    raw_blocks = [] # For NumPy batching
-
-    # Pass 2: Extract Blocks
-    # Logic: From min_value to max_value, find first solid block, then take everything above it.
-    for z in range(16):
-        for x in range(16):
-            # We scan UP from the global min_value
-            for y in range(min_value, max_value + 1):
-                try:
-                    block = chunk.get_block(x, y, z, force_new=True)
-                    # Identify the "base" of the column
-                    if block and block.name() not in AIR:
-                        # Extract everything from here up to max_value
-                        for depth_y in range(y, max_value + 1):
-                            try:
-                                depth_block = chunk.get_block(x, depth_y, z, force_new=True)
-                                if depth_block and depth_block.name() not in AIR:
-                                    raw_blocks.append((x, depth_y, z, depth_block.name()))
-                                    cpt += 1
-                            except Exception:
-                                pass
-                        break # Move to next column
-                except Exception:
-                    continue
-
+    # Every block that is not air between the two heights, in the order z, x, y (y going up).
+    wanted = indices[min_value - min_y:max_value - min_y + 1]
+    zs, xs, ys = np.nonzero((~air[wanted]).transpose(1, 2, 0))
+    ids = wanted[ys, zs, xs]
+    ys = ys + min_value
     watch.lap("scan2")
 
-    # Vectorized Projection using NumPy
-    if raw_blocks:
-        blocks_arr = np.array([b[:3] for b in raw_blocks], dtype=np.int32)
-        block_names = [b[3] for b in raw_blocks]
+    # Isometric position of each block. The height counts from min_value, which cancels out in y.
+    global_xs = xs + chunk_x * 16
+    global_zs = zs + chunk_z * 16
+    ks = np.abs(ys - min_value)
+    x_finals = 16 * (global_xs - global_zs)
+    y_finals = (8 * (global_xs + global_zs) - 16 * ks) - (min_value * 16)
+    # Rounding to match legacy (round(x*100)/100)
+    x_finals = np.round(x_finals * 100) / 100
+    y_finals = np.round(y_finals * 100) / 100
 
-        xs = blocks_arr[:, 0]
-        ys = blocks_arr[:, 1]
-        zs = blocks_arr[:, 2]
-
-        global_xs = xs + global_biome_x
-        global_zs = zs + global_biome_z
-
-        # Logic from legacy:
-        # k = abs(depth_y - min_value)
-        # x_final = 16 * (global_x - global_z)
-        # y_final = (8 * (global_x + global_z) - 16 * k) - min_value * 16
-
-        ks = np.abs(ys - min_value)
-
-        # Vectorized math
-        x_finals = 16 * (global_xs - global_zs)
-        y_finals = (8 * (global_xs + global_zs) - 16 * ks) - (min_value * 16)
-
-        # Rounding to match legacy (round(x*100)/100)
-        x_finals = np.round(x_finals * 100) / 100
-        y_finals = np.round(y_finals * 100) / 100
-
-        for i, name in enumerate(block_names):
-            short_name = name.split(":")[1]
-            isometric_blocks.append([f"{short_name}.webp", float(x_finals[i]), float(y_finals[i])])
+    sprites = [name.split(":")[1] + ".webp" for name in names]
+    isometric_blocks = [[sprites[i], x, y] for i, x, y in zip(ids.tolist(), x_finals.tolist(), y_finals.tolist())]
 
     watch.lap("project")
     return {
         "chunk_x": chunk_x,
         "chunk_z": chunk_z,
-        "heightmap": cpt,
+        "heightmap": len(isometric_blocks),
         "surface_blocks": isometric_blocks,
         "sections": None,
         "palette": min_value
