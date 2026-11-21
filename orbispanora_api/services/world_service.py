@@ -237,113 +237,6 @@ def _worker_get_chunk_isometric(world_path: str, dimension: str, chunk_x: int, c
     return _worker_get_chunk_isometric_timed(world_path, dimension, chunk_x, chunk_z)[0]
 
 
-def _worker_generate_render_data(world_path: str, dimension: str, chunk_x: int, chunk_z: int) -> dict:
-    """
-    Worker function to generate render data in a separate process.
-    """
-    try:
-        # The world this worker process has open
-        world, _ = worker_world(world_path, dimension)
-
-        chunk = world.get_chunk(chunk_x, chunk_z)
-        if not isinstance(chunk, Chunk):
-            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-        render_blocks = []
-
-        AIR = ['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']
-        INVISIBLE = ['minecraft:acacia_leaves', 'minecraft:azalea_leaves', 'minecraft:bamboo_large_leaves', 'minecraft:bamboo_small_leaves',
-                      'minecraft:birch_leaves', 'minecraft:cherry_leaves', 'minecraft:dark_oak_leaves',
-                      'minecraft:flowering_azalea_leaves', 'minecraft:jungle_leaves', 'minecraft:mangrove_leaves',
-                      'minecraft:oak_leaves', 'minecraft:spruce_leaves', 'minecraft:glass', 'minecraft:water',
-                      'minecraft:ice', 'minecraft:tall_grass', 'minecraft:grass', 'minecraft:short_grass',
-                      'minecraft:fern', 'minecraft:large_fern', 'minecraft:vine', 'minecraft:torch']
-
-        global_biome_x = chunk_x * 16
-        global_biome_z = chunk_z * 16
-
-        # Initialize bounds BEFORE usage to prevent UnboundLocalError
-        min_screen_x = float('inf')
-        max_screen_x = float('-inf')
-        min_screen_y = float('inf')
-        max_screen_y = float('-inf')
-
-        # First pass: find lowest surface block and max height
-        min_value = 320
-        max_value = -64
-
-        for z in range(16):
-            for x in range(16):
-                for y in range(320, -64, -1):
-                    try:
-                        block = chunk.get_block(x, y, z, force_new=True)
-                        if block:
-                            if block.name() not in INVISIBLE:
-                                min_value = min(min_value, y)
-                            if block.name() not in AIR:
-                                max_value = max(max_value, y)
-                                break
-                    except Exception:
-                        continue
-
-        # If no blocks found
-        if min_value > max_value:
-            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-        # Second pass: select all blocks
-        for z in range(16):
-            for x in range(16):
-                global_x = global_biome_x + x
-                global_z = global_biome_z + z
-
-                for y in range(min_value, max_value + 1, 1):
-                    try:
-                        block = chunk.get_block(x, y, z, force_new=True)
-                        if block and block.name() not in AIR:
-                            k = y
-                            x_final = 16 * (global_x - global_z)
-                            y_final = 8 * (global_x + global_z) - 16 * k
-                            x_final = round(x_final * 100) / 100
-                            y_final = round(y_final * 100) / 100
-
-                            block_name = block.name().split(":")[1]
-                            sprite_key = f"{block_name}.webp"
-
-                            render_blocks.append([sprite_key, x_final, y_final])
-
-                            min_screen_x = min(min_screen_x, x_final)
-                            max_screen_x = max(max_screen_x, x_final + 32)
-                            min_screen_y = min(min_screen_y, y_final)
-                            max_screen_y = max(max_screen_y, y_final + 32)
-                    except Exception:
-                        continue
-
-        sprites_needed = set(b[0] for b in render_blocks)
-        sprites = {key: {"id": key} for key in sprites_needed}
-
-        if min_screen_x == float('inf'):
-            min_screen_x = 0
-            max_screen_x = 100
-            min_screen_y = 0
-            max_screen_y = 100
-
-        return {
-            "blocks": render_blocks,
-            "sprites": sprites,
-            "bounds": {
-                "min_x": min_screen_x,
-                "max_x": max_screen_x,
-                "min_y": min_screen_y,
-                "max_y": max_screen_y
-            }
-        }
-
-    except Exception as e:
-        print(f"Worker error for chunk ({chunk_x}, {chunk_z}): {e}")
-        # traceback.print_exc()
-        return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-
 class WorldService:
     """Singleton service for managing Minecraft world."""
 
@@ -673,20 +566,6 @@ class WorldService:
                 data = _isometric_chunk_data(self.world, chunk_x, chunk_z)
                 return None if data is None else IsometricChunkResponse(**data)
 
-            elif mode == "render":
-                # Fully optimized for 2D isometric rendering - pre-calculated positions and sprites
-                render_data = self._generate_render_data(chunk_x, chunk_z)
-
-                return ChunkDataResponse(
-                    chunk_x=chunk_x,
-                    chunk_z=chunk_z,
-                    heightmap=None,
-                    surface_blocks=None,
-                    sections=None,
-                    palette=None,
-                    render_data=render_data  # Custom field for render mode
-                )
-
             elif mode in ("simplified", "full"):
                 # The library reads the sections; the palette is the block names they use.
                 full = self.world.get_chunk_data(chunk_x, chunk_z, "full")
@@ -706,29 +585,6 @@ class WorldService:
         except Exception as e:
             print(f"Error getting chunk data: {e}")
             return None
-
-    async def get_render_data_async(self, chunk_x: int, chunk_z: int) -> dict:
-        """
-        Get render data asynchronously using process pool.
-        """
-        if not self.world_path:
-            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-        loop = asyncio.get_event_loop()
-        dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
-
-        try:
-            return await loop.run_in_executor(
-                self._executor,
-                _worker_generate_render_data,
-                self.world_path,
-                dimension,
-                chunk_x,
-                chunk_z
-            )
-        except Exception as e:
-            print(f"Async render generation failed: {e}")
-            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
 
     async def get_chunk_data_async(self, chunk_x: int, chunk_z: int, chunk_h: int = 0, mode: str = 'isometric'):
         """
@@ -785,66 +641,6 @@ class WorldService:
         except Exception as e:
             print(f"Async chunk data generation failed: {e}")
             return None, {}
-
-    def _generate_render_data(self, chunk_x: int, chunk_z: int) -> dict:
-        """
-        generate pre-calculated render data (Synchronous wrapper for legacy calls, though less efficient)
-        """
-        # For synchronous calls, we unfortunately have to run it inline or block
-        # Using the worker directly to share logic
-        if not self.world_path:
-            return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
-
-        dimension = self.world.dimension if hasattr(self.world, 'dimension') else 'overworld'
-        return _worker_generate_render_data(self.world_path, dimension, chunk_x, chunk_z)
-
-
-    def _get_sprite_key(self, block_name: str, biome_name: str) -> str:
-        """Generate a unique key for sprite caching based on block and biome."""
-        # Simplified sprite key generation
-        if block_name == "minecraft:grass_block":
-            if biome_name in ["plains", "forest"]:
-                return "grass_plains"
-            elif biome_name in ["taiga", "snowy_taiga"]:
-                return "grass_taiga"
-            elif biome_name == "desert":
-                return "sand"
-            else:
-                return "grass_default"
-        elif block_name == "minecraft:stone":
-            return "stone"
-        elif block_name == "minecraft:dirt":
-            return "dirt"
-        elif block_name == "minecraft:water":
-            return "water"
-        elif block_name == "minecraft:sand":
-            return "sand"
-        elif block_name == "minecraft:oak_log":
-            return "oak_log"
-        elif block_name == "minecraft:oak_leaves":
-            return "oak_leaves"
-        else:
-            return "unknown_block"
-
-    def _get_sprite_data(self, sprite_key: str) -> dict:
-        """Return sprite data (could be base64 image or URL to pre-generated sprite)."""
-        # For now, return color data that can be used to generate CSS/styled divs
-        # In production, this would return base64-encoded images or URLs
-
-        sprite_colors = {
-            "grass_plains": {"color": "#4CAF50", "border": "#2E7D32"},
-            "grass_taiga": {"color": "#388E3C", "border": "#1B5E20"},
-            "grass_default": {"color": "#4CAF50", "border": "#2E7D32"},
-            "stone": {"color": "#9E9E9E", "border": "#616161"},
-            "dirt": {"color": "#8D6E63", "border": "#5D4037"},
-            "sand": {"color": "#FDD835", "border": "#F9A825"},
-            "water": {"color": "#2196F3", "border": "#1976D2"},
-            "oak_log": {"color": "#6D4C41", "border": "#4E342E"},
-            "oak_leaves": {"color": "#4CAF50", "border": "#2E7D32"},
-            "unknown_block": {"color": "#666666", "border": "#424242"}
-        }
-
-        return sprite_colors.get(sprite_key, sprite_colors["unknown_block"])
 
     def get_area_heightmap(self, x1: int, z1: int, x2: int, z2: int) -> Optional[AreaHeightmapResponse]:
         """

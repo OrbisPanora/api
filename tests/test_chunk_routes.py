@@ -1,9 +1,9 @@
-"""Chunk, area, tile and viewport endpoints."""
+"""Chunk, area and tile endpoints."""
 
 import pytest
 
 
-@pytest.mark.parametrize("mode", ["heightmap", "surface", "isometric", "render", "simplified", "full"])
+@pytest.mark.parametrize("mode", ["heightmap", "surface", "isometric", "simplified", "full"])
 def test_chunk_modes(client, mode):
     response = client.get("/api/chunks/0/0/0", params={"mode": mode})
     assert response.status_code == 200, response.text
@@ -61,23 +61,3 @@ def test_tile_size_limits(client, size):
 
 def test_tile_without_a_world(client_without_world):
     assert client_without_world.get("/api/chunks/tile/0/0", params={"size": 1}).status_code == 503
-
-
-def test_viewport_render(client):
-    response = client.get("/api/chunks/viewport/render", params={"center_x": 0, "center_z": 0, "view_distance": 1})
-    assert response.status_code == 200, response.text
-    data = response.json()["data"]
-    assert data["center_chunk"] == {"x": 0, "z": 0}
-    assert data["view_distance"] == 1
-
-
-def test_viewport_render_without_a_world_is_unavailable(client_without_world):
-    response = client_without_world.get("/api/chunks/viewport/render", params={"center_x": 0, "center_z": 0, "view_distance": 1})
-    assert response.status_code == 503
-
-
-def test_viewport_render_lists_the_chunks_with_blocks(client):
-    data = client.get("/api/chunks/viewport/render", params={"center_x": 0, "center_z": 0, "view_distance": 1}).json()["data"]
-    assert data["stats"]["total_chunks"] == len(data["chunks"]) > 0
-    assert data["stats"]["total_blocks"] > 0
-    assert data["sprites"]

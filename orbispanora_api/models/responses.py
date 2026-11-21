@@ -55,7 +55,6 @@ class ChunkDataResponse(BaseModel):
     chunk_z: int = Field(..., description="Chunk Z coordinate")
     heightmap: Optional[List[List[int]]|int] = Field(None, description="16x16 heightmap array")
     surface_blocks: Optional[List[dict]|List[List]] = Field(None, description="Surface blocks with biomes (surface mode) or isometric blocks with depth info (isometric mode)")
-    render_data: Optional[dict] = Field(None, description="Pre-calculated render data for optimized 2D display (render mode)")
     sections: Optional[List[dict]] = Field(None, description="Chunk sections (simplified/full mode)")
     palette: Optional[List[str]|int] = Field(None, description="Block palette (simplified/full mode)")
 

@@ -36,16 +36,6 @@ class TestWorkers:
     def test_isometric_chunk_that_does_not_exist(self, world_dir):
         assert module._worker_get_chunk_isometric(str(world_dir), "overworld", 9, 9) is None
 
-    def test_render_data(self, world_dir):
-        # Chunk 0,1 has land. Chunk 0,0 is water only, which this mode does not draw.
-        result = module._worker_generate_render_data(str(world_dir), "overworld", 0, 1)
-        assert result["blocks"]
-        assert set(result["bounds"]) == {"min_x", "max_x", "min_y", "max_y"}
-        assert result["sprites"]
-
-    def test_render_data_of_a_chunk_that_does_not_exist(self, world_dir):
-        assert module._worker_generate_render_data(str(world_dir), "overworld", 9, 9)["blocks"] == []
-
 
 class TestChunkData:
 
@@ -63,11 +53,6 @@ class TestChunkData:
             if worker is not None:
                 assert direct.model_dump() == worker
 
-    def test_render_mode_in_process(self, service):
-        data = service.get_chunk_data(0, 1, 0, "render")
-        assert data is not None and data.render_data is not None
-        assert data.render_data["blocks"]
-
     def test_unknown_chunk(self, service):
         assert service.get_chunk_data(9, 9, 0, "heightmap") is None
 
@@ -81,21 +66,6 @@ class TestChunkData:
     def test_async_of_a_chunk_that_does_not_exist(self, service):
         assert asyncio.run(service.get_chunk_data_async(9, 9, 0, "isometric")) is None
 
-    def test_async_render_data(self, service):
-        assert asyncio.run(service.get_render_data_async(0, 1))["blocks"]
-
-
-def test_sprite_keys():
-    service = WorldService.__new__(WorldService)
-    assert service._get_sprite_key("minecraft:grass_block", "plains") == "grass_plains"
-    assert service._get_sprite_key("minecraft:grass_block", "taiga") == "grass_taiga"
-    assert service._get_sprite_key("minecraft:grass_block", "desert") == "sand"
-    assert service._get_sprite_key("minecraft:grass_block", "swamp") == "grass_default"
-    for name, key in [("stone", "stone"), ("dirt", "dirt"), ("water", "water"), ("sand", "sand"), ("oak_log", "oak_log"), ("oak_leaves", "oak_leaves")]:
-        assert service._get_sprite_key(f"minecraft:{name}", "plains") == key
-    assert service._get_sprite_key("minecraft:bedrock", "plains") == "unknown_block"
-    assert service._get_sprite_data("water")["color"] == "#2196F3"
-    assert service._get_sprite_data("nothing")["color"] == "#666666"
 
 
 class TestLoading:

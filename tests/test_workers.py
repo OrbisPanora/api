@@ -5,7 +5,6 @@ import shutil
 import pytest
 from orbispanora_lib.anvil import Region
 
-from orbispanora_api.routers.isometric import get_isometric_service
 from orbispanora_api.services import world_service as module
 from orbispanora_api.services.world_service import get_world_service
 from orbispanora_api.settings import get_settings
@@ -31,10 +30,6 @@ def test_the_pool_has_the_size_of_the_setting(make_client, world_dir, monkeypatc
     monkeypatch.setenv("ORBISPANORA_WORKERS", "2")
     make_client(world_dir)
     assert getattr(get_world_service().executor, "_max_workers") == 2  # pylint: disable=literal-comparison
-
-
-def test_the_chunk_route_and_the_isometric_routes_share_one_pool(service):
-    assert get_isometric_service().executor is service.executor
 
 
 def test_loading_another_world_replaces_the_workers_and_stops_the_old_ones(service, tmp_path):

@@ -141,14 +141,11 @@ Errors use FastAPI's `{"detail": "..."}`. The status codes used are 400
 | `GET /api/worlds/health` | Health check. |
 | `GET /api/worlds/current` | Information about the loaded world. |
 | `POST /api/worlds/dimension` | Switch the loaded world to another dimension. |
-| `GET /api/chunks/{chunk_x}/{chunk_z}/{chunk_h}?mode=` | Chunk data. `mode` is `heightmap`, `surface`, `isometric`, `render`, `simplified` or `full` (default `heightmap`). |
-| `GET /api/chunks/viewport/render?center_x=&center_z=&view_distance=` | Pre-computed render data for the chunks around a centre chunk (`view_distance` 1 to 32). |
+| `GET /api/chunks/{chunk_x}/{chunk_z}/{chunk_h}?mode=` | Chunk data. `mode` is `heightmap`, `surface`, `isometric`, `simplified` or `full` (default `heightmap`). |
 | `GET /api/chunks/area/heightmap?x1=&z1=&x2=&z2=` | Heightmap for a rectangle of chunks. |
 | `GET /api/chunks/tile/{tile_x}/{tile_z}` | Data for a square tile of chunks. |
 | `GET /api/blocks/{x}/{y}/{z}` | One block. |
 | `GET /api/biomes/{x}/{y}/{z}` | Biome at a position. |
-| `GET /api/isometric/blocks`, `GET /api/isometric/surface` | Block lists for the isometric renderer. |
-| `GET /api/isometric/stats`, `POST /api/isometric/cache/clear` | Renderer cache statistics and reset. |
 | `GET /api/resources/images/{image}`, `GET /api/resources/json`, `POST /api/resources/palette` | Block textures and block model data. |
 | `POST /api/upload/world` | Upload a zipped world in one request. |
 | `POST /api/upload/init`, `/chunk`, `/finalize`, `DELETE /api/upload/cancel/{upload_id}` | Chunked upload for large worlds. |
@@ -174,6 +171,9 @@ chunk that does not exist answers 404. A viewer turns a block into a screen posi
 This format replaces `surface_blocks` (`[sprite, screen x, screen y]` per block) of 0.1.0. A viewer and an API
 of different versions do not work together: upgrade both to 0.2.0.
 
+Removed in 0.2.0, because they projected blocks on the server and the viewer does not use them:
+`mode=render`, `GET /api/chunks/viewport/render` and the routes under `/api/isometric/`.
+
 Parameters and response schemas are listed in `/docs`. That page is generated
 from the code and is the reference if this table and the code disagree.
 
@@ -188,7 +188,7 @@ api/
 │   ├── cli.py              # the `orbispanora` command (Typer)
 │   ├── settings.py         # settings (pydantic-settings)
 │   ├── main.py             # FastAPI app, CORS, rate limiting, router registration
-│   ├── routers/            # world, chunk, block, biome, isometric, resource, upload
+│   ├── routers/            # world, chunk, block, biome, resource, upload
 │   ├── services/           # world_service, cache_service, resource_service, zip_safety
 │   ├── middleware/         # rate limiting, compression
 │   ├── models/             # Pydantic request and response models

@@ -14,12 +14,10 @@ from .routers import (
     biome_router,
     block_router,
     chunk_router,
-    isometric_router,
     resource_router,
     upload_router,
     world_router,
 )
-from .routers.isometric import shutdown_isometric_service
 from .services import get_world_service
 from .services.cache_service import init_cache_service
 from .settings import APP_DESCRIPTION, APP_TITLE, APP_VERSION, get_settings
@@ -81,7 +79,6 @@ async def lifespan(_app: FastAPI):
     print("="*60 + "\n")
 
     get_world_service().shutdown()
-    shutdown_isometric_service()
 
 
 # Create FastAPI application
@@ -130,7 +127,6 @@ app.include_router(block_router)
 app.include_router(biome_router)
 app.include_router(upload_router)
 app.include_router(resource_router)
-app.include_router(isometric_router)
 
 
 # Root endpoint
@@ -151,8 +147,7 @@ async def root():
             "chunks": {
                 "get_chunk": "/api/chunks/{chunk_x}/{chunk_z}/{chunk_h}?mode=heightmap",
                 "area_heightmap": "/api/chunks/area/heightmap?x1=0&z1=0&x2=100&z2=100",
-                "tile": "/api/chunks/tile/{tile_x}/{tile_z}?size=16",
-                "viewport_render": "/api/chunks/viewport/render?center_x=0&center_z=0&view_distance=4"
+                "tile": "/api/chunks/tile/{tile_x}/{tile_z}?size=16"
             },
             "blocks": {
                 "get_block": "/api/blocks/{block_x}/{block_y}/{block_z}"

@@ -299,15 +299,6 @@ class TestRequestLimits:
         assert client.get("/api/chunks/area/heightmap", params=params).status_code == 400
         assert client.get("/api/chunks/area/heightmap", params={"x1": 5, "z1": 0, "x2": 0, "z2": 5}).status_code == 400
 
-    @pytest.mark.parametrize("route", ["blocks", "surface"])
-    def test_chunk_limit_is_bounded(self, client, route):
-        assert client.get(f"/api/isometric/{route}", params={"limit": 10**6}).status_code == 422
-        assert client.get(f"/api/isometric/{route}", params={"limit": -1}).status_code == 422
-
-    def test_chunk_list_length_is_bounded(self, client):
-        response = client.get("/api/isometric/blocks", params={"mode": "list", "chunk_list": "0,0;" * 5000})
-        assert response.status_code == 422
-
 
 class TestRateLimitResponse:
 
