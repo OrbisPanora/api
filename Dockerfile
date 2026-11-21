@@ -38,8 +38,10 @@ RUN apt-get update \
     && mkdir /data \
     && chown orbispanora /data
 
+# The user has no home directory, so every setting whose default is under it is set here, next to each other.
 ENV PATH="/app/.venv/bin:$PATH" \
-    ORBISPANORA_TEMP_WORLD_DIR=/data/worlds
+    ORBISPANORA_TEMP_WORLD_DIR=/data/worlds \
+    ORBISPANORA_UPLOAD_CHUNKS_DIR=/data/uploads
 
 WORKDIR /app
 COPY --from=build /app /app

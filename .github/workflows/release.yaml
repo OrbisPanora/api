@@ -88,6 +88,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Smoke test, upload one piece
+        run: .github/scripts/smoke-test-image.sh scan-candidate:${{ github.sha }}
+
       - name: Scan with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
