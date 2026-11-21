@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     world_chunk_cache: int = Field(default=32, ge=0)
     #: Region files each process keeps open. A region is read when a chunk of it is asked for, not loaded whole.
     world_region_cache: int = Field(default=8, ge=0)
+    #: Chunks whose block kinds (air, see-through, water, solid) each process keeps, to decide which blocks are
+    #: visible near a chunk's edges. One chunk takes about 98 KB.
+    world_kinds_cache: int = Field(default=128, ge=0)
 
     # --- Compression ---
 

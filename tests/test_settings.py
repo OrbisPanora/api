@@ -106,6 +106,7 @@ def test_worker_and_cache_defaults():
     assert 1 <= settings.workers <= 8
     assert settings.world_chunk_cache == 32
     assert settings.world_region_cache == 8
+    assert settings.world_kinds_cache == 128
 
 
 def test_worker_and_cache_settings_are_read_and_checked(monkeypatch):

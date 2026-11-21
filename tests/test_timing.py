@@ -5,7 +5,7 @@ import re
 from orbispanora_api.services import world_service as module
 from orbispanora_api.utils.timing import Stopwatch, server_timing
 
-PHASES = ["queue", "world", "chunk", "decode", "scan1", "scan2", "project", "return", "total"]
+PHASES = ["queue", "world", "chunk", "decode", "neighbours", "visibility", "project", "return", "total"]
 
 
 def test_stopwatch_adds_laps_of_the_same_name():
@@ -26,7 +26,7 @@ def test_server_timing_format():
 def test_worker_reports_every_phase(world_dir):
     data, timings = module._worker_get_chunk_isometric_timed(str(world_dir), "overworld", 0, 1)
     assert data is not None
-    assert {"queue", "world", "chunk", "decode", "scan1", "scan2", "project", "finished", "cold"} <= set(timings)
+    assert {"queue", "world", "chunk", "decode", "neighbours", "visibility", "project", "finished", "cold"} <= set(timings)
     assert timings["cold"] in (0.0, 1.0)
 
 

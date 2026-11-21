@@ -1,10 +1,27 @@
 """The isometric chunk response: positions and a palette, with no screen positions."""
 
+from typing import Optional
+
 import pytest
 
-from tests.utilities.golden_chunks import to_screen
-
 FIELDS = {"chunk_x", "chunk_z", "surface_y", "palette", "x", "y", "z", "block"}
+
+
+def to_screen(data: Optional[dict]) -> Optional[dict]:
+    """
+    A chunk result (positions and a palette) as the list of blocks with screen positions that the API sent
+    before 0.2.0: ``[sprite, x, y]`` with ``x = 16 * (gx - gz)`` and ``y = 8 * (gx + gz) - 16 * y``. This is the
+    projection that the viewer does.
+    """
+    if data is None:
+        return None
+    sprites = [name.split(":")[1] + ".webp" for name in data["palette"]]
+    blocks = []
+    for x, y, z, block in zip(data["x"], data["y"], data["z"], data["block"]):
+        global_x = data["chunk_x"] * 16 + x
+        global_z = data["chunk_z"] * 16 + z
+        blocks.append([sprites[block], float(16 * (global_x - global_z)), float(8 * (global_x + global_z) - 16 * y)])
+    return {"chunk_x": data["chunk_x"], "chunk_z": data["chunk_z"], "surface_blocks": blocks}
 
 
 def isometric(client, x, z):
@@ -37,9 +54,9 @@ def test_blocks_are_in_the_order_z_then_x_then_y(client):
     assert keys == sorted(keys)
 
 
-def test_surface_y_is_the_lowest_height_of_the_blocks_sent(client):
+def test_surface_y_is_a_height_of_the_chunk(client):
     data = isometric(client, 1, 1)
-    assert data["surface_y"] == min(data["y"])
+    assert -64 <= data["surface_y"] < 320
 
 
 def test_no_screen_positions_are_sent(client):

@@ -10,13 +10,13 @@ import shutil
 import tempfile
 import time
 import traceback
+import weakref
 import zipfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 from orbispanora_lib.anvil import Chunk, OldBlock, World
-from orbispanora_lib.anvil.errors import OutOfBoundsCoordinates
 
 from ..models.responses import (
     AreaHeightmapResponse,
@@ -30,6 +30,7 @@ from ..models.responses import (
 from ..settings import get_settings
 from ..utils.errors import WorldNotLoadedError
 from ..utils.timing import Stopwatch
+from . import visibility
 from .zip_safety import safe_extract
 
 #: The world a worker process has open: ``((path, dimension), World)``. A worker keeps one world at a time, so
@@ -66,89 +67,54 @@ def _open_world(world_path: str, dimension: str) -> World:
         region_cache_size=settings.world_region_cache,
     )
 
-#: Blocks that do not stop the search for the surface and are not drawn as a surface.
-_AIR_BLOCKS = frozenset({"minecraft:air", "minecraft:cave_air", "minecraft:void_air"})
-#: Blocks that are drawn but do not count as the lowest surface of the chunk.
-#: Water is intentionally not in this set: it acts as a surface.
-_INVISIBLE_BLOCKS = frozenset({
-    "minecraft:acacia_leaves", "minecraft:azalea_leaves", "minecraft:bamboo_large_leaves", "minecraft:bamboo_small_leaves",
-    "minecraft:birch_leaves", "minecraft:cherry_leaves", "minecraft:dark_oak_leaves",
-    "minecraft:flowering_azalea_leaves", "minecraft:jungle_leaves", "minecraft:mangrove_leaves",
-    "minecraft:oak_leaves", "minecraft:spruce_leaves", "minecraft:glass",
-    "minecraft:ice", "minecraft:tall_grass", "minecraft:grass", "minecraft:short_grass",
-    "minecraft:fern", "minecraft:large_fern", "minecraft:vine", "minecraft:torch",
-})
-#: Highest section index and the range the old code looked at.
-_FIRST_SECTION = 19
-_LAST_SECTION = -4
-#: Value of the lowest height before any column was looked at.
-_NO_LOWEST = 320
-#: Value of the highest height before any column was looked at.
-_NO_HIGHEST = -64
+#: Value of ``surface_y`` for a chunk with no block.
+_NO_SURFACE = 320
+#: Kinds of block of the chunks used recently, per world (see ``visibility.KindsCache``).
+_kinds_caches: "weakref.WeakKeyDictionary[World, visibility.KindsCache]" = weakref.WeakKeyDictionary()
 
 
-def _has_section(chunk: Chunk, section_y: int) -> bool:
-    """True if the chunk has a section at this index. An index outside the range of the chunk's version has none."""
-    try:
-        return bool(chunk.get_section(section_y))
-    except OutOfBoundsCoordinates:
-        return False
+def _kinds_cache(world: World) -> visibility.KindsCache:
+    """The cache of block kinds of a world, created on first use with the size of the settings."""
+    cache = _kinds_caches.get(world)
+    if cache is None:
+        cache = _kinds_caches[world] = visibility.KindsCache(get_settings().world_kinds_cache)
+    return cache
 
 
-def _active_rows(chunk: Chunk, min_y: int, height: int) -> np.ndarray:
-    """Which rows of the block array belong to a section that the chunk has."""
-    active = np.zeros(height, dtype=bool)
-    for section_y in range(_FIRST_SECTION, _LAST_SECTION - 1, -1):
-        if _has_section(chunk, section_y):
-            first = section_y * 16 - min_y
-            active[max(first, 0):max(first + 16, 0)] = True
-    return active
+def _chunk_kinds(world: World, chunk_x: int, chunk_z: int) -> Optional[visibility.ChunkKinds]:
+    """The kind of each block of a chunk, or None if the chunk does not exist."""
+    chunk = world.get_chunk(chunk_x, chunk_z)
+    if not isinstance(chunk, Chunk):
+        return None
+    blocks = chunk.block_array()
+    return visibility.ChunkKinds(visibility.block_kinds(blocks.names)[blocks.indices], blocks.min_y)
 
 
-def _height_range(indices: np.ndarray, air: np.ndarray, invisible: np.ndarray, active: np.ndarray, min_y: int):
+def _surface_y(kinds: np.ndarray, min_y: int, ys: np.ndarray) -> int:
     """
-    The lowest and the highest height of the chunk's surface, as ``(min_value, max_value)``.
-
-    For each column the search goes down through the sections the chunk has, to the first block that is not
-    air. The highest such block of all columns gives ``max_value``. ``min_value`` is the lowest height the search
-    passed through: air above the surface counts, and so does the surface block unless it is invisible. A column
-    with no block at all counts the lowest row of the lowest section.
+    The lowest surface of a chunk: for each column the height of the highest block that hides what is below it
+    (water or solid), and the lowest of these. Without such a block, the lowest block sent, or 320 if none.
     """
-    rows = indices.shape[0]
-    solid = ~air[indices] & active[:, None, None]
-    has_top = solid.any(axis=0)
-    top_row = rows - 1 - solid[::-1].argmax(axis=0)
-    active_rows = np.flatnonzero(active)
-
-    lowest = np.full(has_top.shape, _NO_LOWEST, dtype=np.int64)
-    if active_rows.size:
-        lowest[~has_top] = active_rows[0] + min_y
-        top_ids = np.take_along_axis(indices, top_row[None], axis=0)[0]
-        visible_top = has_top & ~invisible[top_ids]
-        lowest[visible_top] = top_row[visible_top] + min_y
-        # An invisible surface block counts only through the air above it, down to the next section row up.
-        hidden_z, hidden_x = np.nonzero(has_top & invisible[top_ids])
-        above = np.searchsorted(active_rows, top_row[hidden_z, hidden_x], side="right")
-        found = above < active_rows.size
-        lowest[hidden_z[found], hidden_x[found]] = active_rows[above[found]] + min_y
-
-    highest = int(top_row[has_top].max()) + min_y if has_top.any() else _NO_HIGHEST
-    return min(_NO_LOWEST, int(lowest.min())), max(_NO_HIGHEST, highest)
+    hiding = kinds >= visibility.WATER
+    has_top = hiding.any(axis=0)
+    if has_top.any():
+        top_row = kinds.shape[0] - 1 - hiding[::-1].argmax(axis=0)
+        return int(top_row[has_top].min()) + min_y
+    return int(ys.min()) + min_y if ys.size else _NO_SURFACE
 
 
 def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optional[Stopwatch] = None) -> Optional[dict]:
     """
     The blocks of a chunk that are sent to the viewer, or None if the chunk does not exist.
 
-    The result is a dict with the fields of ``IsometricChunkResponse``: ``surface_y`` (the lowest surface
-    height), ``palette`` (the block names that occur), and for each block its position inside the chunk
-    (``x``, ``y``, ``z``) and its index in the palette (``block``). The blocks are every block that is not air
-    between the lowest and the highest surface of the chunk (see ``_height_range``), in the order z, x, y.
-    The viewer projects the positions itself.
+    The result is a dict with the fields of ``IsometricChunkResponse``: ``surface_y`` (see ``_surface_y``),
+    ``palette`` (the block names that occur), and for each block its position inside the chunk (``x``, ``y``,
+    ``z``) and its index in the palette (``block``). The blocks are those the camera can see in at least one of
+    the four views (see ``visibility``), in the order z, x, y. The viewer projects the positions itself.
 
     When ``watch`` is given, it gets one lap per phase: ``chunk`` (region read, decompression and
-    NBT parsing), ``decode`` (the chunk's blocks as an array), ``scan1`` (height range), ``scan2`` (block
-    selection) and ``project`` (the lists sent to the client).
+    NBT parsing), ``decode`` (the chunk's blocks as an array), ``neighbours`` (the kinds of the eight chunks
+    around it), ``visibility`` (block selection) and ``project`` (the lists sent to the client).
     """
     watch = watch or Stopwatch()
     chunk = world.get_chunk(chunk_x, chunk_z)
@@ -156,36 +122,33 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optio
     if not isinstance(chunk, Chunk):
         return None
 
-    if not any(_has_section(chunk, section_y) for section_y in range(_FIRST_SECTION, _LAST_SECTION - 1, -1)):
-        return _isometric_result(chunk_x, chunk_z, _NO_LOWEST)
-
     blocks = chunk.block_array()
     indices, names, min_y = blocks.indices, blocks.names, blocks.min_y
+    middle = visibility.ChunkKinds(visibility.block_kinds(names)[indices], min_y)
     watch.lap("decode")
 
-    air = np.fromiter((name in _AIR_BLOCKS for name in names), dtype=bool, count=len(names))
-    invisible = np.fromiter((name in _INVISIBLE_BLOCKS for name in names), dtype=bool, count=len(names))
-    active = _active_rows(chunk, min_y, blocks.height)
-    min_value, max_value = _height_range(indices, air, invisible, active, min_y)
-    watch.lap("scan1")
+    cache = _kinds_cache(world)
+    cache.put((chunk_x, chunk_z), middle)
 
-    if min_value > max_value:
-        # No usable range: no block is sent, and the lowest height is what the search found (320 if no column).
-        return _isometric_result(chunk_x, chunk_z, min_value)
+    def kinds_of(x: int, z: int) -> Optional[visibility.ChunkKinds]:
+        return middle if (x, z) == (chunk_x, chunk_z) else cache.get((x, z), lambda: _chunk_kinds(world, x, z))
 
-    # Every block that is not air between the two heights, in the order z, x, y (y going up).
-    wanted = indices[min_value - min_y:max_value - min_y + 1]
-    zs, xs, ys = np.nonzero((~air[wanted]).transpose(1, 2, 0))
-    ids = wanted[ys, zs, xs]
-    watch.lap("scan2")
+    area = visibility.area_kinds(chunk_x, chunk_z, kinds_of)
+    watch.lap("neighbours")
+
+    shown = visibility.visible(area)
+    # Blocks in the order z, x, y (y going up), which is the draw order of the default view.
+    zs, xs, ys = np.nonzero(shown.transpose(1, 2, 0))
+    ids = indices[ys, zs, xs]
+    watch.lap("visibility")
 
     # Keep only the block names that occur, numbered in the order of the chunk's own palette.
     used, inverse = np.unique(ids, return_inverse=True)
-    result = _isometric_result(chunk_x, chunk_z, min_value)
+    result = _isometric_result(chunk_x, chunk_z, _surface_y(middle.kinds, min_y, ys))
     result.update(
         palette=[names[i] for i in used.tolist()],
         x=xs.tolist(),
-        y=(ys + min_value).tolist(),
+        y=(ys + min_y).tolist(),
         z=zs.tolist(),
         block=inverse.tolist(),
     )
@@ -610,8 +573,8 @@ class WorldService:
         """
         Isometric chunk data from the process pool, with the time each phase took in milliseconds.
 
-        Phases: ``queue``, ``world`` (only when the worker opens the world), ``chunk``, ``scan1``,
-        ``scan2``, ``project`` and ``return`` (from the worker finishing to the result being here).
+        Phases: ``queue``, ``world`` (only when the worker opens the world), ``chunk``, ``decode``,
+        ``neighbours``, ``visibility``, ``project`` and ``return`` (from the worker finishing to the result being here).
         The returned dict also holds ``cold`` (1.0 if the worker opened the world for this
         request) and ``blocks`` (number of blocks sent). Both are notes rather than durations.
         """
