@@ -15,6 +15,7 @@ from ..models.responses import (
     APIResponse,
     AreaHeightmapResponse,
     ChunkDataResponse,
+    IsometricChunkResponse,
     TileDataResponse,
 )
 from ..services.world_service import WorldService, get_world_service
@@ -259,7 +260,7 @@ async def get_tile(
 
 @router.get(
     "/{chunk_x}/{chunk_z}/{chunk_h}",
-    response_model=APIResponse[ChunkDataResponse],
+    response_model=APIResponse[IsometricChunkResponse | ChunkDataResponse],
     summary="Get chunk data",
     description="Returns chunk data in various formats: heightmap (lightest), surface (for rendering), isometric (3D data), render (pre-calculated 2D display), simplified, or full.",
     status_code=200
@@ -274,14 +275,14 @@ async def get_chunk(
         description="Data format: heightmap (~1KB), surface (~10-50KB), isometric (~5-20KB), render (~2-10KB pre-calculated), simplified (~5KB), or full (~500KB-2MB)"
     ),
     world_service: WorldService = Depends(get_world_service)
-) -> APIResponse[ChunkDataResponse]:
+) -> APIResponse[IsometricChunkResponse | ChunkDataResponse]:
     """
     Get chunk data in the specified format.
 
     **Modes:**
     - **heightmap**: Only heightmap data (lightest, ~1KB) - ideal for minimap
     - **surface**: Surface blocks with biomes (~10-50KB) - ideal for 2D rendering
-    - **isometric**: Surface blocks with depth info (~5-20KB) - optimized for 3D isometric view
+    - **isometric**: The blocks that can be seen, as positions and a palette (see IsometricChunkResponse) - the viewer projects them
     - **render**: Pre-calculated 2D display data (~2-10KB) - ready for immediate rendering
     - **simplified**: Palette only (~5KB) - for basic visualization
     - **full**: All chunk data (heaviest, ~500KB-2MB) - complete chunk information
@@ -290,7 +291,8 @@ async def get_chunk(
     - chunk_x, chunk_z: Chunk coordinates
     - chunk_h: Height of precedent chunk
     - heightmap: 16x16 array of heights (heightmap mode)
-    - surface_blocks: Surface block data with biomes (surface/isometric modes)
+    - surface_blocks: Surface block data with biomes (surface mode)
+    - isometric mode: surface_y, palette and the lists x, y, z, block (see IsometricChunkResponse)
     - render_data: Pre-calculated screen positions and sprites (render mode)
     - sections, palette: Chunk sections and block palette (simplified/full modes)
 

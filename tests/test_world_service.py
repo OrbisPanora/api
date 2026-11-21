@@ -30,8 +30,8 @@ class TestWorkers:
         result = module._worker_get_chunk_isometric(str(world_dir), "overworld", 0, 0)
         assert result is not None
         assert (result["chunk_x"], result["chunk_z"]) == (0, 0)
-        assert result["surface_blocks"]
-        assert isinstance(result["heightmap"], int)
+        assert result["x"] and result["palette"]
+        assert len(result["x"]) == len(result["y"]) == len(result["z"]) == len(result["block"])
 
     def test_isometric_chunk_that_does_not_exist(self, world_dir):
         assert module._worker_get_chunk_isometric(str(world_dir), "overworld", 9, 9) is None
@@ -52,8 +52,8 @@ class TestChunkData:
     def test_isometric_mode_in_process(self, service):
         data = service.get_chunk_data(0, 0, 0, "isometric")
         assert data is not None
-        assert data.surface_blocks
-        assert isinstance(data.heightmap, int)
+        assert data.x and data.palette
+        assert isinstance(data.surface_y, int)
 
     def test_isometric_mode_gives_what_the_worker_gives(self, service, world_dir):
         for chunk in [(0, 0), (1, 1), (9, 9)]:
@@ -61,7 +61,7 @@ class TestChunkData:
             direct = service.get_chunk_data(*chunk, 0, "isometric")
             assert (worker is None) == (direct is None)
             if worker is not None:
-                assert direct.model_dump(exclude={"render_data"}) == worker
+                assert direct.model_dump() == worker
 
     def test_render_mode_in_process(self, service):
         data = service.get_chunk_data(0, 1, 0, "render")
@@ -73,7 +73,7 @@ class TestChunkData:
 
     def test_async_isometric_matches_in_process(self, service):
         asynchronous = asyncio.run(service.get_chunk_data_async(0, 0, 0, "isometric"))
-        assert asynchronous.surface_blocks
+        assert asynchronous.x
 
     def test_async_other_modes_use_the_synchronous_path(self, service):
         assert asyncio.run(service.get_chunk_data_async(0, 0, 0, "heightmap")).heightmap

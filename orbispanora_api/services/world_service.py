@@ -12,7 +12,7 @@ import time
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 from orbispanora_lib.anvil import Chunk, OldBlock, World
@@ -23,6 +23,7 @@ from ..models.responses import (
     BiomeDataResponse,
     BlockDataResponse,
     ChunkDataResponse,
+    IsometricChunkResponse,
     TileDataResponse,
     WorldInfoResponse,
 )
@@ -137,14 +138,17 @@ def _height_range(indices: np.ndarray, air: np.ndarray, invisible: np.ndarray, a
 
 def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optional[Stopwatch] = None) -> Optional[dict]:
     """
-    Surface blocks of a chunk with their isometric screen positions, or None if the chunk does not exist.
+    The blocks of a chunk that are sent to the viewer, or None if the chunk does not exist.
 
-    The result holds every block that is not air between the lowest and the highest surface of the chunk
-    (see ``_height_range``), in the order z, x, y. It is the draw order of the viewer.
+    The result is a dict with the fields of ``IsometricChunkResponse``: ``surface_y`` (the lowest surface
+    height), ``palette`` (the block names that occur), and for each block its position inside the chunk
+    (``x``, ``y``, ``z``) and its index in the palette (``block``). The blocks are every block that is not air
+    between the lowest and the highest surface of the chunk (see ``_height_range``), in the order z, x, y.
+    The viewer projects the positions itself.
 
     When ``watch`` is given, it gets one lap per phase: ``chunk`` (region read, decompression and
     NBT parsing), ``decode`` (the chunk's blocks as an array), ``scan1`` (height range), ``scan2`` (block
-    selection) and ``project`` (screen positions and the list sent to the client).
+    selection) and ``project`` (the lists sent to the client).
     """
     watch = watch or Stopwatch()
     chunk = world.get_chunk(chunk_x, chunk_z)
@@ -153,9 +157,7 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optio
         return None
 
     if not any(_has_section(chunk, section_y) for section_y in range(_FIRST_SECTION, _LAST_SECTION - 1, -1)):
-        # A chunk with no section at all. This shape differs from the other results on purpose here: the route
-        # answers "not found" for it, as it did before.
-        return {"blocks": [], "sprites": {}, "bounds": {"min_x": 0, "max_x": 0, "min_y": 0, "max_y": 0}}
+        return _isometric_result(chunk_x, chunk_z, _NO_LOWEST)
 
     blocks = chunk.block_array()
     indices, names, min_y = blocks.indices, blocks.names, blocks.min_y
@@ -168,40 +170,34 @@ def _isometric_chunk_data(world: World, chunk_x: int, chunk_z: int, watch: Optio
     watch.lap("scan1")
 
     if min_value > max_value:
-        # No usable range: legacy returned the lowest height (320 when no column was looked at).
-        return {
-            "chunk_x": chunk_x, "chunk_z": chunk_z, "heightmap": 0,
-            "surface_blocks": [], "sections": None, "palette": min_value
-        }
+        # No usable range: no block is sent, and the lowest height is what the search found (320 if no column).
+        return _isometric_result(chunk_x, chunk_z, min_value)
 
     # Every block that is not air between the two heights, in the order z, x, y (y going up).
     wanted = indices[min_value - min_y:max_value - min_y + 1]
     zs, xs, ys = np.nonzero((~air[wanted]).transpose(1, 2, 0))
     ids = wanted[ys, zs, xs]
-    ys = ys + min_value
     watch.lap("scan2")
 
-    # Isometric position of each block. The height counts from min_value, which cancels out in y.
-    global_xs = xs + chunk_x * 16
-    global_zs = zs + chunk_z * 16
-    ks = np.abs(ys - min_value)
-    x_finals = 16 * (global_xs - global_zs)
-    y_finals = (8 * (global_xs + global_zs) - 16 * ks) - (min_value * 16)
-    # Rounding to match legacy (round(x*100)/100)
-    x_finals = np.round(x_finals * 100) / 100
-    y_finals = np.round(y_finals * 100) / 100
-
-    sprites = [name.split(":")[1] + ".webp" for name in names]
-    isometric_blocks = [[sprites[i], x, y] for i, x, y in zip(ids.tolist(), x_finals.tolist(), y_finals.tolist())]
-
+    # Keep only the block names that occur, numbered in the order of the chunk's own palette.
+    used, inverse = np.unique(ids, return_inverse=True)
+    result = _isometric_result(chunk_x, chunk_z, min_value)
+    result.update(
+        palette=[names[i] for i in used.tolist()],
+        x=xs.tolist(),
+        y=(ys + min_value).tolist(),
+        z=zs.tolist(),
+        block=inverse.tolist(),
+    )
     watch.lap("project")
+    return result
+
+
+def _isometric_result(chunk_x: int, chunk_z: int, surface_y: int) -> dict:
+    """An isometric chunk result without blocks."""
     return {
-        "chunk_x": chunk_x,
-        "chunk_z": chunk_z,
-        "heightmap": len(isometric_blocks),
-        "surface_blocks": isometric_blocks,
-        "sections": None,
-        "palette": min_value
+        "chunk_x": chunk_x, "chunk_z": chunk_z, "surface_y": surface_y,
+        "palette": [], "x": [], "y": [], "z": [], "block": [],
     }
 
 
@@ -583,7 +579,7 @@ class WorldService:
         """Check if world is loaded without triggering loading."""
         return self._world is not None
 
-    def get_chunk_data(self, chunk_x: int, chunk_z: int, _chunk_h: int = 0, mode: str = 'heightmap') -> Optional[ChunkDataResponse]:
+    def get_chunk_data(self, chunk_x: int, chunk_z: int, _chunk_h: int = 0, mode: str = 'heightmap') -> Optional[Union[ChunkDataResponse, IsometricChunkResponse]]:
         """
         Get chunk data in various formats.
 
@@ -593,7 +589,7 @@ class WorldService:
             mode: Data format ('heightmap', 'surface', 'isometric', 'simplified', 'full')
 
         Returns:
-            ChunkDataResponse object or None if chunk not found
+            ChunkDataResponse (IsometricChunkResponse for the isometric mode) or None if chunk not found
         """
         try:
             try:
@@ -675,7 +671,7 @@ class WorldService:
             # Isometric mode: optimized block extraction for 2.5D view
             elif mode == "isometric":
                 data = _isometric_chunk_data(self.world, chunk_x, chunk_z)
-                return None if data is None else ChunkDataResponse(**data)
+                return None if data is None else IsometricChunkResponse(**data)
 
             elif mode == "render":
                 # Fully optimized for 2D isometric rendering - pre-calculated positions and sprites
@@ -746,7 +742,7 @@ class WorldService:
             mode: Data format (currently only 'isometric' is optimized for async)
 
         Returns:
-            ChunkDataResponse object or None if chunk not found
+            ChunkDataResponse (IsometricChunkResponse for the isometric mode) or None if chunk not found
         """
         if mode != "isometric":
             # For other modes, fall back to synchronous version
@@ -754,7 +750,7 @@ class WorldService:
 
         return (await self.get_isometric_chunk_timed(chunk_x, chunk_z))[0]
 
-    async def get_isometric_chunk_timed(self, chunk_x: int, chunk_z: int) -> Tuple[Optional[ChunkDataResponse], Dict[str, float]]:
+    async def get_isometric_chunk_timed(self, chunk_x: int, chunk_z: int) -> Tuple[Optional[IsometricChunkResponse], Dict[str, float]]:
         """
         Isometric chunk data from the process pool, with the time each phase took in milliseconds.
 
@@ -784,15 +780,8 @@ class WorldService:
             if result is None:
                 return None, timings
 
-            timings["blocks"] = float(len(result["surface_blocks"]))
-            return ChunkDataResponse(
-                chunk_x=result["chunk_x"],
-                chunk_z=result["chunk_z"],
-                heightmap=result["heightmap"],
-                surface_blocks=result["surface_blocks"],
-                sections=result["sections"],
-                palette=result["palette"]
-            ), timings
+            timings["blocks"] = float(len(result["x"]))
+            return IsometricChunkResponse(**result), timings
         except Exception as e:
             print(f"Async chunk data generation failed: {e}")
             return None, {}

@@ -153,6 +153,27 @@ Errors use FastAPI's `{"detail": "..."}`. The status codes used are 400
 | `POST /api/upload/world` | Upload a zipped world in one request. |
 | `POST /api/upload/init`, `/chunk`, `/finalize`, `DELETE /api/upload/cancel/{upload_id}` | Chunked upload for large worlds. |
 
+### Isometric chunk
+
+`GET /api/chunks/{chunk_x}/{chunk_z}/{chunk_h}?mode=isometric` returns the blocks of a chunk that the
+viewer draws. Since 0.2.0 it sends block positions, not screen positions, and the viewer projects them:
+
+```json
+{"chunk_x": 1, "chunk_z": 0, "surface_y": 62,
+ "palette": ["minecraft:water", "minecraft:stone"],
+ "x": [0, 1, 1], "y": [62, 62, 63], "z": [0, 0, 0], "block": [0, 0, 1]}
+```
+
+`x` and `z` are the position inside the chunk (0 to 15), `y` the height and `block` the index in `palette`.
+The four lists have one entry per block, in the order z, then x, then y going up. `surface_y` is the height of
+the lowest surface block of the chunk. The blocks are every block that is not air between the lowest and the
+highest surface of the chunk. A chunk that exists but has no block to draw answers with empty lists, and a
+chunk that does not exist answers 404. A viewer turns a block into a screen position with
+`16 * (gx - gz)` and `8 * (gx + gz) - 16 * y`, where `gx = 16 * chunk_x + x` and `gz = 16 * chunk_z + z`.
+
+This format replaces `surface_blocks` (`[sprite, screen x, screen y]` per block) of 0.1.0. A viewer and an API
+of different versions do not work together: upgrade both to 0.2.0.
+
 Parameters and response schemas are listed in `/docs`. That page is generated
 from the code and is the reference if this table and the code disagree.
 

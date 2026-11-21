@@ -72,6 +72,34 @@ class ChunkDataResponse(BaseModel):
         }
 
 
+class IsometricChunkResponse(BaseModel):
+    """
+    The blocks of a chunk that can be seen, as positions and a palette (isometric mode).
+
+    The lists ``x``, ``y``, ``z`` and ``block`` have one entry per block and the same length. The blocks are
+    in the order z, then x, then y going up. The viewer turns a position into a screen position
+    (``16 * (gx - gz)`` and ``8 * (gx + gz) - 16 * y``, with ``gx = 16 * chunk_x + x`` and ``gz = 16 * chunk_z + z``).
+    """
+
+    chunk_x: int = Field(..., description="Chunk X coordinate")
+    chunk_z: int = Field(..., description="Chunk Z coordinate")
+    surface_y: int = Field(..., description="Height of the lowest surface block of the chunk (320 if the chunk has none)")
+    palette: List[str] = Field(..., description="Names of the blocks that occur, with their namespace")
+    x: List[int] = Field(..., description="X of each block inside the chunk, 0 to 15")
+    y: List[int] = Field(..., description="Height of each block")
+    z: List[int] = Field(..., description="Z of each block inside the chunk, 0 to 15")
+    block: List[int] = Field(..., description="Index in the palette of each block")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "chunk_x": 0, "chunk_z": 0, "surface_y": 62,
+                "palette": ["minecraft:stone", "minecraft:grass_block"],
+                "x": [0, 0], "y": [62, 63], "z": [0, 0], "block": [0, 1],
+            }
+        }
+
+
 class AreaHeightmapResponse(BaseModel):
     """Area heightmap response for large regions."""
 

@@ -175,17 +175,37 @@ def build_synthetic_world(target: Path) -> Path:
     return target
 
 
+def to_screen(data: Optional[dict]) -> Optional[dict]:
+    """
+    A chunk result (positions and a palette) as the list of blocks with screen positions that the API sent
+    before 0.2.0: ``[sprite, x, y]`` with ``x = 16 * (gx - gz)`` and ``y = 8 * (gx + gz) - 16 * y``. This is the
+    projection that the viewer does, so the recorded reference stays comparable with what the viewer draws.
+    """
+    if data is None:
+        return None
+    sprites = [name.split(":")[1] + ".webp" for name in data["palette"]]
+    blocks = []
+    for x, y, z, block in zip(data["x"], data["y"], data["z"], data["block"]):
+        global_x = data["chunk_x"] * 16 + x
+        global_z = data["chunk_z"] * 16 + z
+        blocks.append([sprites[block], float(16 * (global_x - global_z)), float(8 * (global_x + global_z) - 16 * y)])
+    return {
+        "chunk_x": data["chunk_x"], "chunk_z": data["chunk_z"], "heightmap": len(blocks),
+        "surface_blocks": blocks, "sections": None, "palette": data["surface_y"],
+    }
+
+
 def collect(workdir: Path) -> Dict[str, Optional[dict]]:
-    """The output of `_isometric_chunk_data` for every recorded chunk, as plain JSON data."""
+    """The output of `_isometric_chunk_data` for every recorded chunk, as plain JSON data, with screen positions."""
     fixture = World(str(build_world(workdir / "fixture")))
     synthetic = World(str(build_synthetic_world(workdir / "synthetic")))
     found: Dict[str, Optional[dict]] = {}
     for x, z in FIXTURE_CHUNKS:
-        found[f"fixture/{x},{z}"] = _isometric_chunk_data(fixture, x, z)
-    found["fixture/9,9"] = _isometric_chunk_data(fixture, 9, 9)
+        found[f"fixture/{x},{z}"] = to_screen(_isometric_chunk_data(fixture, x, z))
+    found["fixture/9,9"] = to_screen(_isometric_chunk_data(fixture, 9, 9))
     for chunk_x, name in enumerate(SYNTHETIC_NAMES):
-        found[f"synthetic/{name}"] = _isometric_chunk_data(synthetic, chunk_x, 0)
-    found["synthetic/outside"] = _isometric_chunk_data(synthetic, 30, 0)
+        found[f"synthetic/{name}"] = to_screen(_isometric_chunk_data(synthetic, chunk_x, 0))
+    found["synthetic/outside"] = to_screen(_isometric_chunk_data(synthetic, 30, 0))
     # JSON round trip: the comparison is on the data that goes over the wire.
     return json.loads(json.dumps(found))
 

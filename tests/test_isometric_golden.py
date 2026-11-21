@@ -1,7 +1,8 @@
 """The output of `_isometric_chunk_data` must stay equal to the recorded reference.
 
 The reference is `tests/golden/isometric_chunks.json.gz`, recorded from the code before it was rewritten
-(see `tests/utilities/golden_chunks.py`). A failure names the first block that differs. If the change is
+(see `tests/utilities/golden_chunks.py`). The chunk results hold positions and a palette; the reference holds
+the screen positions that the viewer computes from them. A failure names the first block that differs. If the change is
 meant, record the reference again with `uv run python -m tests.utilities.make_golden` and say why in the
 commit.
 """
@@ -55,7 +56,9 @@ def test_the_reference_covers_the_rules_it_is_meant_to_pin_down():
     """Guards against a reference that was recorded from the wrong chunks."""
     flat = recorded("synthetic/flat")
     assert flat["palette"] == 63 and flat["heightmap"] == 256
-    assert recorded("synthetic/no_sections").keys() == {"blocks", "sprites", "bounds"}
+    # A chunk that is stored but has no section has the same shape as any other chunk, without blocks.
+    empty = recorded("synthetic/no_sections")
+    assert empty["surface_blocks"] == [] and empty["heightmap"] == 0 and empty["palette"] == 320
     assert RECORDED["fixture/9,9"] is None and RECORDED["synthetic/outside"] is None
     names = {block[0] for key, value in RECORDED.items() if value and "surface_blocks" in value for block in value["surface_blocks"]}
     assert {"water.webp", "oak_leaves.webp", "glass.webp", "short_grass.webp", "stone.webp"} <= names
