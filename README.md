@@ -98,6 +98,7 @@ outside its range stops the command with the key named.
 | `ORBISPANORA_WORKERS` | CPU cores, at most 8 | Worker processes that compute chunks (1 to 64). All routes share them. |
 | `ORBISPANORA_WORLD_CHUNK_CACHE` | `32` | Decoded chunks each process keeps. A decoded chunk takes about 240 KB. |
 | `ORBISPANORA_WORLD_REGION_CACHE` | `8` | Region files each process keeps open. A region file is not read into memory: its header is, and each chunk when it is asked for. |
+| `ORBISPANORA_WORLD_KINDS_CACHE` | `128` | Chunks whose block kinds (air, see-through, water, solid) each process keeps, to decide which blocks are visible. A chunk takes about 98 KB. `0` keeps none. |
 
 ### Memory
 
@@ -108,6 +109,9 @@ and `ORBISPANORA_WORLD_REGION_CACHE` open region files. The total is about
 once on a 2.0 GB world (224 regions) with 5 minutes of panning at zoom 0.25: 1.15 GB in total with 8 workers,
 the largest worker 126 MB, no growth. Each worker also keeps only the world that is loaded: loading another
 world (an upload, a dimension switch) replaces the worker processes.
+
+That measurement was made before `ORBISPANORA_WORLD_KINDS_CACHE` existed. With its default of 128 chunks it
+adds at most about 12.5 MB per process (128 × 98 KB).
 
 The API only reads the world at `ORBISPANORA_WORLD_PATH`. Uploaded worlds are extracted
 into `ORBISPANORA_TEMP_WORLD_DIR`. Use a copy of a world you care about.
@@ -162,11 +166,31 @@ viewer draws. Since 0.2.0 it sends block positions, not screen positions, and th
 ```
 
 `x` and `z` are the position inside the chunk (0 to 15), `y` the height and `block` the index in `palette`.
-The four lists have one entry per block, in the order z, then x, then y going up. `surface_y` is the height of
-the lowest surface block of the chunk. The blocks are every block that is not air between the lowest and the
-highest surface of the chunk. A chunk that exists but has no block to draw answers with empty lists, and a
-chunk that does not exist answers 404. A viewer turns a block into a screen position with
-`16 * (gx - gz)` and `8 * (gx + gz) - 16 * y`, where `gx = 16 * chunk_x + x` and `gz = 16 * chunk_z + z`.
+The four lists have one entry per block, in the order z, then x, then y going up. A chunk that exists but has
+no block to draw answers with empty lists, and a chunk that does not exist answers 404. A viewer turns a block
+into a screen position with `16 * (gx - gz)` and `8 * (gx + gz) - 16 * y`, where `gx = 16 * chunk_x + x` and
+`gz = 16 * chunk_z + z`.
+
+The API sends the blocks that the camera can see in at least one of the four 90 degree views. In the default
+view the camera looks along (-1, -1, -1), so the blocks at p, p + (1, 1, 1), p + (2, 2, 2), ... are drawn at
+the same screen position. The other views use (±1, 1, ±1). Each block has a kind:
+
+- air: not sent;
+- see-through: sent, hides nothing. This covers blocks whose sprite does not cover the whole cube or lets
+  light through: leaves, glass, ice, plants, slabs, stairs, fences, doors and others, listed in
+  `orbispanora_api/services/visibility.py`;
+- water: sent, hides the blocks below it but not the blocks next to it at the same height;
+- solid: sent, hides what is behind it.
+
+A block is sent if, in one view, its top or one of its two sides turned to the camera touches a cell that does
+not hide it, and no cell on the line p + d, p + 2d, ... toward the camera hides it. The test reads the 8
+neighbour chunks. A ray that leaves them counts as clear, and a missing neighbour counts as air, so blocks at
+the edge of the world are sent. A few blocks that several blocks hide together, each covering part of the
+sprite, are still sent.
+
+`surface_y`: for each column, the height of its highest block that is water or solid; `surface_y` is the lowest
+of these heights. If no column has such a block, it is the height of the lowest block sent, and 320 if nothing
+is sent.
 
 This format replaces `surface_blocks` (`[sprite, screen x, screen y]` per block) of 0.1.0. A viewer and an API
 of different versions do not work together: upgrade both to 0.2.0.
@@ -189,7 +213,7 @@ api/
 │   ├── settings.py         # settings (pydantic-settings)
 │   ├── main.py             # FastAPI app, CORS, rate limiting, router registration
 │   ├── routers/            # world, chunk, block, biome, resource, upload
-│   ├── services/           # world_service, cache_service, resource_service, zip_safety
+│   ├── services/           # world_service, visibility, cache_service, resource_service, zip_safety
 │   ├── middleware/         # rate limiting, compression
 │   ├── models/             # Pydantic request and response models
 │   └── utils/              # error classes, safe path building
